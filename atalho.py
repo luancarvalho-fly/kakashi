@@ -13,7 +13,8 @@ Trocar: janelinha do KAKASHI → TROCAR O ATALHO (vale na hora, sem reiniciar) o
 """
 import ctypes, sys, time
 
-user32 = ctypes.windll.user32
+MAC = sys.platform == "darwin"     # porte pro Mac (02/11): o atalho roda pelo mac.Atalho (CGEventTap)
+user32 = ctypes.windll.user32 if not MAC else None
 MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_WIN = 0x1, 0x2, 0x4, 0x8
 WM_APP = 0x8000
 WM_RECARREGAR = WM_APP + 1      # a thread do atalho relê o config.json e registra de novo
@@ -124,6 +125,14 @@ def teclas_soltar():
 
 
 def _postar(m):
+    if MAC:
+        import mac
+        if mac.ATALHO is not None:
+            if m == WM_SOLTAR:
+                mac.ATALHO.solto = True
+            else:
+                mac.ATALHO.solto = False; RECARREGAR_MAC()
+        return
     if THREAD_ID:
         user32.PostThreadMessageW(THREAD_ID, m, 0, 0)
 
@@ -136,8 +145,14 @@ def soltar():
     _postar(WM_SOLTAR)
 
 
+RECARREGAR_MAC = lambda: None      # no Mac a thread do atalho (kakashi.pyw) põe aqui o "registrar de novo"
+
+
 def livre(a):
     """o Windows deixa registrar? (testa e solta na hora; o atalho de agora tem que estar solto antes)"""
+    if MAC:
+        import mac
+        return a["vk"] in mac.VK_MAC           # no Mac não dá pra saber se outro app usa: vale se a tecla existe aqui
     ok = bool(user32.RegisterHotKey(None, 0x7FF0, a["mods"], a["vk"]))
     if ok:
         user32.UnregisterHotKey(None, 0x7FF0)
@@ -150,6 +165,20 @@ def _baixo(vk):
 
 def capturar(limite=15.0):
     """espera a pessoa apertar o atalho novo (Esc cancela). Volta {"ok", "texto", "msg"}; msg = texto curto pra janelinha."""
+    if MAC:
+        import mac
+        r = mac.ATALHO.capturar(limite) if mac.ATALHO is not None else None
+        if r is None:
+            return {"ok": False, "msg": "TROCA CANCELADA"}
+        if r == "esc":
+            return {"ok": False, "msg": "TROCA CANCELADA"}
+        vk, mods = r
+        if vk is None:
+            return {"ok": False, "msg": "ESSA TECLA NAO VALE"}
+        a = montar(mods, vk)
+        if validar(a):
+            return {"ok": False, "msg": "NAO VALE · USE CTRL ALT OU CMD JUNTO"}
+        return {"ok": True, "texto": a["texto"], "msg": "NOVO ATALHO: " + a["nome"]}
     fim = time.time() + limite
     while time.time() < fim and any(_baixo(v) for v in (0x01, 0x02)):      # solta o clique do botão primeiro
         time.sleep(0.02)

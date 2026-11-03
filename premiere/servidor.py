@@ -53,6 +53,7 @@ VERSAO = "0.3.1"
 # teste do app Projetos subiu na 7799 e o Corretor nao ligava). O painel fala SO com esta porta.
 PORTA = int(os.environ.get("CORRETOR_PORTA") or 7815)
 BASE = Path(__file__).resolve().parent
+MAC = sys.platform == "darwin"     # porte pro Mac (02/11): microfone e tela pelo avfoundation, alerta pelo afplay
 SESSOES = BASE / "sessoes"
 # CORRETOR_CONFIG: outro config.json (so pros testes: o simulador --tela usa teste\config_tela.json)
 CONFIG = Path(os.environ["CORRETOR_CONFIG"]).resolve() if os.environ.get("CORRETOR_CONFIG") else BASE / "config.json"
@@ -88,6 +89,11 @@ def python_console():
 
 def som_pc_disponivel():
     """(True, 'PyAudioWPatch x.y') ou (False, motivo em portugues)"""
+    if MAC:
+        som = BASE.parent / "som_mac" / "som_do_mac"
+        if not GRAVAR_PC.exists() or not som.exists():
+            return False, "falta o som_mac/som_do_mac do Kakashi (o som do Mac pelo ScreenCaptureKit); grava so a voz"
+        return True, "ScreenCaptureKit (som_do_mac)"
     if not GRAVAR_PC.exists():
         return False, "falta o gravar_pc.py na pasta do servidor"
     try:
@@ -213,9 +219,27 @@ def ler_config():
 
 
 def listar_dispositivos():
-    """[{nome, tipo}] do dshow. tipo = audio | video | none."""
+    """[{nome, tipo}] do dshow. tipo = audio | video | none. No Mac: do avfoundation (a tela entra como video "Capture screen N")."""
     if not FFMPEG:
         return []
+    if MAC:
+        try:
+            r = subprocess.run([FFMPEG, "-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+                               capture_output=True, timeout=15)
+        except Exception as e:
+            log_geral("list_devices falhou: %s" % e)
+            return []
+        out, tipo = [], "none"
+        for linha in (r.stderr or b"").decode("utf-8", "replace").splitlines():
+            if "AVFoundation video devices" in linha:
+                tipo = "video"
+            elif "AVFoundation audio devices" in linha:
+                tipo = "audio"
+            else:
+                m = re.search(r"\] \[(\d+)\] (.+)$", linha)
+                if m:
+                    out.append({"nome": m.group(2).strip(), "tipo": tipo, "indice": int(m.group(1))})
+        return out
     try:
         r = subprocess.run([FFMPEG, "-hide_banner", "-list_devices", "true", "-f", "dshow", "-i", "dummy"],
                            capture_output=True, timeout=15, creationflags=SEM_JANELA)
@@ -251,6 +275,14 @@ def microfone(cfg):
         if d["tipo"] == "audio":
             return d["nome"]
     return ""
+
+
+def tela_mac():
+    """a tela principal no avfoundation ("Capture screen 0"); precisa da permissao Gravacao de Tela"""
+    for d in listar_dispositivos():
+        if d["tipo"] == "video" and d["nome"].startswith("Capture screen"):
+            return d["nome"]
+    return "Capture screen 0"
 
 
 def nome_limpo(s, maximo=60):
@@ -461,6 +493,7 @@ class Sessao:
         falsa = bool(cfg.get("teste_fonte_falsa"))
         if FFMPEG and (dev or falsa):
             entrada = (["-f", "lavfi", "-re", "-i", "sine=frequency=440:sample_rate=48000"] if falsa
+                       else ["-f", "avfoundation", "-i", ":" + dev] if MAC
                        else ["-f", "dshow", "-audio_buffer_size", "50", "-i", "audio=" + dev])
             cmd = [FFMPEG, "-hide_banner", "-nostats", "-loglevel", "warning"] + entrada + [
                    "-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le",
@@ -501,6 +534,7 @@ class Sessao:
             fps = str(self.meta.get("tela_fps") or cfg.get("tela_fps", 5))
             gop = str(max(2, int(round(2 * float(fps)))))      # quadro-chave a cada 2 s (fragmento de 2 s)
             entrada = (["-f", "lavfi", "-re", "-i", "testsrc=size=1280x720:rate=" + fps] if cfg.get("teste_fonte_falsa")
+                       else ["-f", "avfoundation", "-framerate", fps, "-capture_cursor", "1", "-i", tela_mac() + ":none"] if MAC
                        else ["-f", "gdigrab", "-framerate", fps, "-draw_mouse", "1", "-i", "desktop"])
             cmd = [FFMPEG, "-hide_banner", "-nostats", "-loglevel", "warning"] + entrada + [
                    "-vf", "scale=%d:-2:flags=bilinear,format=yuv420p" % larg,
@@ -627,9 +661,12 @@ def tocar_alerta():
 
     def _toca():
         try:
-            import winsound
             for _ in range(2):
-                winsound.PlaySound(som, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+                if MAC:
+                    subprocess.Popen(["afplay", som])
+                else:
+                    import winsound
+                    winsound.PlaySound(som, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
                 time.sleep(2.2)
         except Exception as e:
             log_geral("alerta: nao toquei o som: %s" % e)

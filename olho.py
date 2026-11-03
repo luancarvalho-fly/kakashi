@@ -14,15 +14,16 @@ Só CPU. Nunca toca som.
 import array, ctypes, ctypes.wintypes as wt, datetime, hashlib, html, json, os, re, shutil, sqlite3, subprocess, tempfile, time
 import urllib.request, wave
 
-user32 = ctypes.windll.user32
-kernel32 = ctypes.windll.kernel32
-ole32 = ctypes.windll.ole32
-oleaut32 = ctypes.windll.oleaut32
+if os.name == "nt":
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    ole32 = ctypes.windll.ole32
+    oleaut32 = ctypes.windll.oleaut32
+else:       # porte pro Mac (02/11): as linhas de preparo do Windows viram nada; as peças do Mac entram no FIM deste arquivo
+    import mac
+    user32 = kernel32 = ole32 = oleaut32 = mac.SemWindows()
 oleaut32.SysFreeString.argtypes = [ctypes.c_void_p]
 ole32.CoTaskMemFree.argtypes = [ctypes.c_void_p]
-FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
-FFPROBE = shutil.which("ffprobe") or "ffprobe"
-SEM_JANELA = 0x08000000
 
 
 def exe_do_pid(pid):
@@ -297,198 +298,12 @@ def hash_imagem(im):
     return hashlib.sha1(im.convert("RGB").tobytes()).hexdigest()
 
 
-# ------------------------------------------------------------------ Chrome: páginas abertas + imagens dos pins
-def _chrome_hist():
-    """pacote da Fly: o perfil do Chrome mais usado DESTA pessoa (o History mexido por último)"""
-    base = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Google", "Chrome", "User Data")
-    try:
-        cands = [os.path.join(base, d, "History") for d in os.listdir(base) if os.path.isfile(os.path.join(base, d, "History"))]
-    except OSError:
-        cands = []
-    return max(cands, key=os.path.getmtime) if cands else os.path.join(base, "Default", "History")
-
-
-CHROME_HIST = _chrome_hist()
-
-
-def historico_chrome(ini_epoch, fim_epoch):
-    """[{epoch, url, titulo}] das visitas entre os dois instantes (cópia do History; a hora bate com o relógio da gravação)"""
-    tmp = os.path.join(tempfile.gettempdir(), "kakashi_history_%d.sqlite" % os.getpid())
-    for src in (CHROME_HIST, CHROME_HIST.replace("\\\\localhost\\C$", "C:")):
-        try:
-            shutil.copyfile(src, tmp)
-            break
-        except OSError:
-            continue
-    else:
-        raise OSError("não consegui copiar o histórico do Chrome")
-    try:
-        con = sqlite3.connect(tmp)
-        a = int((ini_epoch + 11644473600) * 1e6); b = int((fim_epoch + 11644473600) * 1e6)
-        linhas = con.execute("SELECT v.visit_time, u.url, u.title FROM visits v JOIN urls u ON u.id = v.url "
-                             "WHERE v.visit_time BETWEEN ? AND ? ORDER BY v.visit_time", (a, b)).fetchall()
-        con.close()
-    finally:
-        try:
-            os.remove(tmp)
-        except OSError:
-            pass
-    out = []
-    for vt, url, tit in linhas:
-        if re.match(r"(chrome|about|chrome-extension|devtools|edge)://", url or "") or url.startswith("chrome-search:"):
-            continue
-        if out and out[-1]["url"] == url and vt / 1e6 - 11644473600 - out[-1]["epoch"] < 3:
-            continue                     # redirecionamento / recarregou na hora: uma visita só
-        out.append({"epoch": round(vt / 1e6 - 11644473600, 2), "url": url, "titulo": tit or ""})
-    return out
-
-
-UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36"
-
-
-def _baixar(url, t=20, limite=40_000_000):
-    req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept-Language": "pt-BR,pt;q=0.9"})
-    with urllib.request.urlopen(req, timeout=t) as r:
-        return r.read(limite), r.headers.get("Content-Type", "")
-
-
-def og_image(url):
-    pagina, _ = _baixar(url, limite=3_000_000)
-    s = pagina.decode("utf-8", "replace")
-    for pad in (r'<meta[^>]+property="og:image"[^>]+content="([^"]+)"', r'<meta[^>]+content="([^"]+)"[^>]+property="og:image"',
-                r'<meta[^>]+name="og:image"[^>]+content="([^"]+)"'):
-        m = re.search(pad, s, re.I)
-        if m:
-            return html.unescape(m.group(1))
-    return None
-
-
-def imagem_do_pin(pin_id, url):
-    """A página do pin NÃO traz og:image (21/10: o Pinterest manda só o app em JS). O widget público dá a imagem dos pins
-    públicos; pin de pasta SECRETA (a APP_PESSOAL dele) volta vazio → None (fica valendo o print nativo da página)."""
-    try:
-        b, _ = _baixar("https://widgets.pinterest.com/v3/pidgets/pins/info/?pin_ids=" + pin_id)
-        d = (json.loads(b).get("data") or [None])[0]
-        if d and d.get("images"):
-            maior = max(d["images"].values(), key=lambda v: v.get("width") or 0)
-            return maior.get("url")
-    except Exception:
-        pass
-    try:
-        return og_image(url)
-    except Exception:
-        return None
-
-
-def baixar_refs(links, pasta):
-    """Pin do Pinterest = baixa a imagem (tenta a original); link direto de imagem = baixa. Marca link["ref"] = _refs\\arquivo.
-    Pin privado: link["ref_erro"] = "pin privado" (a imagem não sai sem o login dele; o print da página fica valendo)."""
-    dest = os.path.join(pasta, "_refs")
-    feitos = {}
-    for l in links:
-        u = l["url"]
-        m = re.search(r"pinterest\.[a-z.]+/pin/([\w-]+)", u)
-        img = nome = None
-        try:
-            if m:
-                nome = "pin_" + m.group(1)
-                if nome in feitos:
-                    if feitos[nome]:
-                        l["ref"] = feitos[nome]
-                    else:
-                        l["ref_erro"] = "pin privado"
-                    continue
-                feitos[nome] = None
-                img = imagem_do_pin(m.group(1), u)
-                if not img:
-                    l["ref_erro"] = "pin privado"
-                    continue
-            elif re.search(r"\.(jpe?g|png|webp|gif)(\?|$)", u, re.I) or "i.pinimg.com" in u:
-                nome = "img_" + hashlib.sha1(u.encode()).hexdigest()[:10]
-                img = u
-            if not img:
-                continue
-            tentativas = [img]
-            if "i.pinimg.com" in img and "/originals/" not in img:
-                tentativas.insert(0, re.sub(r"i\.pinimg\.com/[^/]+/", "i.pinimg.com/originals/", img))
-            for tent in tentativas:
-                try:
-                    dados, tipo = _baixar(tent)
-                except Exception:
-                    continue
-                if not dados or not tipo.startswith("image"):
-                    continue
-                ext = {"image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}.get(tipo.split(";")[0], ".jpg")
-                os.makedirs(dest, exist_ok=True)
-                with open(os.path.join(dest, nome + ext), "wb") as f:
-                    f.write(dados)
-                l["ref"] = feitos[nome] = "_refs\\" + nome + ext
-                l["ref_url"] = tent
-                break
-        except Exception as e:
-            l["ref_erro"] = str(e)[:120]
-    return links
-
-
-def t_da_sessao(epoch, meta):
-    """segundo da gravação de um instante do relógio de parede. Sessão PC: epoch − início. Olho do Premiere (23/10): relógio
-    do PAINEL, sem as pausas nem os pedaços apagados (relogio_trechos = [[inicio, t0, fim], ...] das partes que ficaram);
-    instante numa pausa ou num pedaço apagado = o segundo do corte (igual ao t_gravacao do CORRETOR)"""
-    ini = meta.get("inicio_epoch") or 0
-    tre = meta.get("relogio_trechos")
-    if not tre:
-        return epoch - ini
-    for e0, t0, e1 in tre:
-        if epoch < e0:
-            return t0
-        if epoch <= e1:
-            return t0 + (epoch - e0)
-    e0, t0, e1 = tre[-1]
-    return t0 + (e1 - e0)
-
-
-def fim_da_sessao(meta):
-    """epoch do fim (o olho do Premiere guarda fim_epoch: com pausa, início + duração não chega no fim)"""
-    return meta.get("fim_epoch") or (meta.get("inicio_epoch") or 0) + (meta.get("duracao_s") or 0)
-
-
-def links_da_sessao(pasta, meta, baixar=True):
-    """lê o histórico do Chrome no intervalo EXATO da sessão → links.json na pasta; devolve a lista
-    (02/11: tirada a folga de 2 s antes e 5 s depois; ele: "não é pra você pegar coisa anterior ou coisa depois")"""
-    ini = meta.get("inicio_epoch") or 0
-    fim = fim_da_sessao(meta)
-    links = historico_chrome(ini, fim)
-    for l in links:
-        l["t"] = round(t_da_sessao(l["epoch"], meta), 2)
-    if baixar:
-        baixar_refs(links, pasta)
-    with open(os.path.join(pasta, "links.json"), "w", encoding="utf-8") as f:
-        json.dump({"lido_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "links": links}, f, ensure_ascii=False, indent=1)
-    return links
+# Chrome, relógio da sessão, duracao e ler_wav: em comum.py (porte pro Mac)
+from comum import (FFMPEG, FFPROBE, SEM_JANELA, CHROME_HIST, historico_chrome, UA, _baixar, og_image,  # noqa
+                   imagem_do_pin, baixar_refs, t_da_sessao, fim_da_sessao, links_da_sessao, duracao, ler_wav)
 
 
 # ------------------------------------------------------------------ áudio/vídeo: replay e junção
-def duracao(arq):
-    try:
-        r = subprocess.run([FFPROBE, "-v", "error", "-show_entries", "format=duration", "-of", "default=nw=1:nk=1", arq],
-                           capture_output=True, timeout=30, creationflags=SEM_JANELA)
-        return float(r.stdout.decode().strip())
-    except Exception:
-        return 0.0
-
-
-def ler_wav(arq):
-    """(bytes PCM, taxa, canais, largura). Aguenta wav de processo morto (tamanho 'desconhecido' no cabeçalho)."""
-    with open(arq, "rb") as f:
-        b = f.read()
-    i = b.find(b"fmt ")
-    canais, taxa = int.from_bytes(b[i + 10:i + 12], "little"), int.from_bytes(b[i + 12:i + 16], "little")
-    larg = int.from_bytes(b[i + 22:i + 24], "little") // 8
-    j = b.find(b"data", i)
-    dados = b[j + 8:]
-    return dados[: len(dados) // (canais * larg) * canais * larg], taxa, canais, larg
-
-
 def gravar_wav(arq, dados, taxa, canais, larg=2):
     with wave.open(arq, "wb") as w:
         w.setnchannels(canais); w.setsampwidth(larg); w.setframerate(taxa); w.writeframes(dados)
@@ -718,3 +533,19 @@ def nivel_voz(arq, segundos=0.4):
         return (sum(x * x for x in a) / len(a)) ** 0.5
     except Exception:
         return 0
+
+
+# ------------------------------------------------------------------ Mac (porte de 02/11): as mesmas peças, pelo mac.py
+if os.name != "nt":
+    _salvar_print_windows = salvar_print
+    UIA = mac.UIA
+    ler_area = mac.ler_area
+    pasta_capturas = mac.pasta_capturas
+    monitor_de = mac.monitor_de
+    print_nativo = mac.print_nativo
+    GERENCIADORES = GERENCIADORES | mac.GERENCIADORES
+
+    def salvar_print(im, mon, x, y, base):
+        """no Mac o cursor vem em pontos e o print em pixels (Retina = 2x): converte e usa o mesmo desenho do Windows"""
+        s = mac.escala(im, mon)
+        _salvar_print_windows(im, (0, 0, im.width, im.height), (x - mon[0]) * s, (y - mon[1]) * s, base)

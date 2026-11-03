@@ -56,15 +56,20 @@ CORRETOR = AQUI   # pacote da Fly: gravar_pc.py, config.json e painel\icones vê
 PY = (os.path.join(os.path.dirname(sys.executable), "python.exe")
       if os.path.isfile(os.path.join(os.path.dirname(sys.executable), "python.exe")) else sys.executable)
 FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
-SEM_JANELA = 0x08000000
+MAC = sys.platform == "darwin"      # porte pro Mac (02/11/2026): as peças do sistema vêm do mac.py; a lógica é a mesma
+SEM_JANELA = 0x08000000 if not MAC else 0
 LOG = os.path.join(AQUI, "kakashi.log")
 
-user32 = ctypes.windll.user32
-kernel32 = ctypes.windll.kernel32
-try:
-    ctypes.windll.shcore.SetProcessDpiAwareness(2)
-except Exception:
-    pass
+if not MAC:
+    user32 = ctypes.windll.user32
+    kernel32 = ctypes.windll.kernel32
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(2)
+    except Exception:
+        pass
+else:
+    import mac  # noqa: E402
+    user32 = kernel32 = mac.SemWindows()
 
 
 def log(msg):
@@ -142,8 +147,8 @@ def tipo_da_frente():
 # "quando terminar a gravação, ele já deixar copiado automaticamente ... e ele já colar automático também ... aonde tiver o
 # cursor ... Exatamente como o Whisper faz ... mesmo se colou em algum outro lugar, eu posso apertar um Ctrl V que vai tá lá"
 # DLLs próprias: os argtypes daqui não mexem nas funções do user32 que o resto do arquivo (e o olho.py) usa.
-_u32 = ctypes.WinDLL("user32", use_last_error=True)
-_k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+_u32 = ctypes.WinDLL("user32", use_last_error=True) if not MAC else mac.SemWindows()
+_k32 = ctypes.WinDLL("kernel32", use_last_error=True) if not MAC else mac.SemWindows()
 _k32.GlobalAlloc.restype = ctypes.c_void_p; _k32.GlobalAlloc.argtypes = (wt.UINT, ctypes.c_size_t)
 _k32.GlobalLock.restype = ctypes.c_void_p; _k32.GlobalLock.argtypes = (ctypes.c_void_p,)
 _k32.GlobalUnlock.argtypes = (ctypes.c_void_p,)
@@ -188,6 +193,28 @@ def colar_kakashi(colar=True):
     except Exception as e:
         log("colar: %s" % e)
 
+if MAC:
+    janela_frente = mac.janela_frente
+    _copiar = mac.copiar
+
+    def colar_kakashi(colar=True):
+        """Mac: copia "/kakashi" e (se colar) aperta Cmd+V na janela da frente, depois que ele soltar as teclas do atalho.
+        No Premiere só copia (lá Cmd+V cola clipe na timeline)."""
+        try:
+            teclas = [c for c in [mac.VK_MAC.get(v) for v in atalho.teclas_soltar()] if c is not None] + mac.TECLAS_MOD
+            fim = time.time() + 3
+            while time.time() < fim and any(mac.tecla_apertada(c) for c in teclas):
+                time.sleep(0.03)
+            if not _copiar(TEXTO_COLAR):
+                log("colar: área de transferência ocupada"); return
+            if colar and "premiere" not in janela_frente()["app"].lower():
+                time.sleep(0.08)
+                mac.colar()
+            log("colar: %s %s" % (TEXTO_COLAR, "copiado e colado" if colar else "copiado"))
+        except Exception as e:
+            log("colar: %s" % e)
+
+
 # ---------- microfone (mesma escolha do CORRETOR / AppPessoal) ----------
 def microfone():
     for arq, chave in ((os.path.join(CORRETOR, "config.json"), "dispositivo_audio"),):
@@ -215,6 +242,31 @@ def entrada_mic(dev):
 
 ENTRADA_TELA = ["-f", "gdigrab", "-framerate", "5", "-draw_mouse", "1", "-i", "desktop"]
 GRAVAR_PC_EXTRA = []
+if MAC:
+    def microfone():
+        """Mac: o "dispositivo_audio" do config.json do Kakashi ou do Premiere (o mesmo microfone); senão o 1º do avfoundation"""
+        for arq in (CFG, os.path.join(AQUI, "premiere", "config.json")):
+            try:
+                v = json.load(open(arq, encoding="utf-8")).get("dispositivo_audio")
+                if v:
+                    return v
+            except (OSError, ValueError):
+                pass
+        try:
+            r = subprocess.run([FFMPEG, "-hide_banner", "-f", "avfoundation", "-list_devices", "true", "-i", ""],
+                               capture_output=True, timeout=15)
+            txt = (r.stderr or b"").decode("utf-8", "replace")
+            m = re.search(r"AVFoundation audio devices:.*?\] \[\d+\] ([^\n]+)", txt, re.S)
+            if m:
+                return m.group(1).strip()
+        except Exception:
+            pass
+        return ""
+
+    def entrada_mic(dev):
+        return ["-f", "avfoundation", "-i", ":" + dev]
+
+    ENTRADA_TELA = ["-f", "avfoundation", "-framerate", "5", "-capture_cursor", "1", "-i", "Capture screen 0:none"]
 # P20: gravando, tanto tempo em silêncio digital → o olho fica cinza e o "SEM SOM" pisca (+ P40: o som do Sharingan no fone).
 # Era 15; P40 (30/10) subiu pra 20 = o mesmo do CORRETOR (mic_morto_s): o mic sem fio dele corta pra ZERO em toda pausa
 # (29/10: pausa normal de até 17,5 s em 57 min; 20 s não deu alarme falso em 2h47). config.json "mudo_aviso_s" muda.
@@ -241,9 +293,12 @@ def tocar_alerta():
 
     def _toca():
         try:
-            import winsound
             for _ in range(2):
-                winsound.PlaySound(som, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
+                if MAC:
+                    subprocess.Popen(["afplay", som])
+                else:
+                    import winsound
+                    winsound.PlaySound(som, winsound.SND_FILENAME | winsound.SND_ASYNC | winsound.SND_NODEFAULT)
                 time.sleep(2.2)     # JUIZ 30/10: espera depois dos DOIS (igual o CORRETOR): o fio não morre com o 2º ainda tocando
             log("alerta: toquei o som do Sharingan 2x (%s)" % os.path.basename(som))
         except Exception as e:
@@ -350,7 +405,7 @@ class GravacaoPC:
                              "-threads", "2", "-movflags", "+frag_keyframe+empty_moov+default_base_moof",
                              "-frag_duration", "2000000", "-flush_packets", "1", "-y", self._arq("tela", ".mp4", n)])
         gp = os.path.join(CORRETOR, "gravar_pc.py")
-        if os.path.isfile(gp):
+        if os.path.isfile(gp):      # no Mac o gravar_pc.py lê o som do Mac pelo som_mac/som_do_mac (ScreenCaptureKit)
             self._abrir("som_pc", [PY, gp, "--pasta", self.pasta, "--parte", str(n), "--inicio", "%.3f" % epoch] + GRAVAR_PC_EXTRA,
                         stdout=subprocess.DEVNULL, stderr=open(os.path.join(self.pasta, "som_pc.log"), "ab"))
 
@@ -452,15 +507,16 @@ class GravacaoPC:
             uia = olho.UIA()
         except Exception as e:
             uia = None; log("área/uia: %r" % e)
-        seq = olho.user32.GetClipboardSequenceNumber()
+        contagem = mac.area_contagem if MAC else olho.user32.GetClipboardSequenceNumber
+        seq = contagem()
         while not self.parar_ev.wait(0.3):
-            s = olho.user32.GetClipboardSequenceNumber()
+            s = contagem()
             if s == seq:
                 continue
             seq = s; quando = time.time(); time.sleep(0.15)
             try:
                 j = janela_frente()
-                dono = olho.exe_do_pid(_pid_da_janela(user32.GetClipboardOwner())) or j["app"]
+                dono = j["app"] if MAC else (olho.exe_do_pid(_pid_da_janela(user32.GetClipboardOwner())) or j["app"])
                 if {j["app"].lower(), dono.lower()} & olho.GERENCIADORES or re.search(r"senha|password|passkey", j["titulo"], re.I):
                     continue
                 if uia is not None and uia.foco_e_senha():
@@ -480,13 +536,14 @@ class GravacaoPC:
                     if h in self.hashes:
                         continue
                     self.hashes.add(h)
-                    captura = dono.lower() in ("snippingtool.exe", "screenclippinghost.exe", "screensketch.exe")
+                    captura = dono.lower() in ("snippingtool.exe", "screenclippinghost.exe", "screensketch.exe", "screencaptureui",
+                                               "captura de tela", "screenshot")
                     ev.update(o_que="captura" if captura else "imagem", arquivo=self._salvar_imagem(im, quando, "captura" if captura else "imagem"),
                               tamanho=list(im.size))
                     if a.get("html_img"):
                         ev["url_imagem"] = a["html_img"]
                 elif a["arquivos"]:
-                    lst = ImageGrab.grabclipboard()
+                    lst = a.get("lista") if MAC else ImageGrab.grabclipboard()
                     ev.update(o_que="arquivos", arquivos=[str(x) for x in (lst or [])][:30])
                 elif a.get("texto", "").strip():
                     t = a["texto"].strip()
@@ -943,7 +1000,10 @@ class Vigia:
                 if (j["app"], j["titulo"]) != ult_j:
                     ult_j = (j["app"], j["titulo"]); self.emitir({"tipo": "janela", **j}, agora)
                     print_janela = agora + 1.5            # página/janela nova: print nativo quando assentar
-                user32.GetCursorPos(ctypes.byref(pt)); pos = (pt.x, pt.y)
+                if MAC:
+                    pos = mac.mouse()
+                else:
+                    user32.GetCursorPos(ctypes.byref(pt)); pos = (pt.x, pt.y)
                 if ant is not None and pos != ant:
                     andou += abs(pos[0] - ant[0]) + abs(pos[1] - ant[1]); t_mexeu = agora
                 ant = pos
@@ -957,9 +1017,9 @@ class Vigia:
                     if g is not None:
                         self.pedir("uia", "parou", pos, t_mexeu); self.pedir("print", "parou", pos, t_mexeu)
                 for vk in botoes:
-                    baixo = bool(user32.GetAsyncKeyState(vk) & 0x8000)
+                    baixo = mac.botao(vk - 1) if MAC else bool(user32.GetAsyncKeyState(vk) & 0x8000)
                     if baixo and not botoes[vk]:
-                        alvo = janela_frente(user32.GetAncestor(user32.WindowFromPoint(pt), 2))
+                        alvo = mac.janela_em(*pos) if MAC else janela_frente(user32.GetAncestor(user32.WindowFromPoint(pt), 2))
                         self.emitir({"tipo": "clique" if vk == 1 else "clique_direito", "x": pos[0], "y": pos[1], **alvo}, agora)
                         if g is not None:
                             self.pedir("uia", "clique", pos, agora)
@@ -1658,6 +1718,24 @@ MOD_ALT, MOD_CONTROL, MOD_SHIFT, MOD_NOREPEAT = 0x1, 0x2, 0x4, 0x4000
 WM_HOTKEY = 0x0312
 
 
+def thread_atalhos_mac(fila):
+    """Mac: o mesmo config.json e as mesmas regras do atalho.py, ouvidos por um CGEventTap (mac.Atalho)"""
+    def registrar():
+        a = atalho.do_config(cfg()); g, c = a["gravar"], a["cancelar"]
+        ok = mac.ATALHO.registrar(g, c)
+        if a["erro"]:
+            fila.put(("erro", a["erro"]))
+        if not ok:
+            fila.put(("erro", "%s não existe no teclado do Mac: troque na janelinha do KAKASHI (TROCAR O ATALHO)" % g["nome"]))
+        log("atalhos (Mac): %s=%s %s" % (g["nome"], ok, c["nome"] if c else "-"))
+        atalho.ATIVO = a if ok else None
+
+    mac.ATALHO = mac.Atalho(lambda acao: fila.put((acao, None)), lambda msg: (log("atalho: " + msg), fila.put(("erro", msg))))
+    atalho.RECARREGAR_MAC = registrar
+    registrar()
+    mac.ATALHO.rodar()
+
+
 def thread_atalhos(fila):
     """pacote da Fly (27/10): o atalho sai do config.json ("atalho" / "atalho_cancelar"; padrão Ctrl+Page Down, o do Luan) e
     a janelinha troca sem reiniciar: ela manda WM_RECARREGAR (registrar de novo) ou WM_SOLTAR (enquanto a pessoa aperta o novo)."""
@@ -1690,7 +1768,7 @@ def thread_atalhos(fila):
 # ---------- o Sharingan ----------
 TRANSP = "#010203"
 try:
-    ESC = user32.GetDpiForSystem() / 96.0      # tela 4K com zoom do Windows: tudo cresce junto
+    ESC = user32.GetDpiForSystem() / 96.0 if not MAC else 1.0      # tela 4K com zoom do Windows: tudo cresce junto (o Mac já escala)
 except Exception:
     ESC = 1.0
 # o olho é o do painel do Premiere: arte de 40x40 ampliada 4x nos PNGs (160) → aqui 1 bloco = 1 px (40), ou 2 px (80) no config "olho": 80
@@ -1719,7 +1797,10 @@ class Tela:
     def __init__(self, k, fila):
         self.k, self.fila = k, fila
         self.root = tk.Tk(); self.root.overrideredirect(True); self.root.attributes("-topmost", True)
-        self.root.configure(bg=TRANSP); self.root.attributes("-transparentcolor", TRANSP)
+        if MAC:      # o Tk do Mac não tem -transparentcolor: a janela inteira é transparente e o fundo é "systemTransparent"
+            self.root.attributes("-transparent", True); self.root.configure(bg="systemTransparent")
+        else:
+            self.root.configure(bg=TRANSP); self.root.attributes("-transparentcolor", TRANSP)
         c = cfg()
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         # padrão: do lado esquerdo da bolinha do Whisper (centro dela ~27 px da direita e ~76 px do fim da tela)
@@ -1727,7 +1808,7 @@ class Tela:
         ox, oy = c.get("olho_x", sw - int(83 * ESC)), c.get("olho_y", sh - int(76 * ESC))
         x, y = ox - (W - R - int(4 * ESC)), oy - H // 2
         self.root.geometry("%dx%d+%d+%d" % (W, H, x, y))
-        self.cv = tk.Canvas(self.root, width=W, height=H, bg=TRANSP, highlightthickness=0); self.cv.pack()
+        self.cv = tk.Canvas(self.root, width=W, height=H, bg="systemTransparent" if MAC else TRANSP, highlightthickness=0); self.cv.pack()
         self.olho = self._carregar_olho(); self.modo = "escondido"; self.quadro = 0; self.prox = 0.0; self.visivel = True
         self.painel = None
         self.ang = 0.0; self.quem = None; self.desde = None; self.aviso = None; self.pisca = False; self.mudo = False; self.ult_estado = 0
@@ -1735,6 +1816,8 @@ class Tela:
         self.arr = None
         self.cv.bind("<ButtonPress-1>", self._apertou); self.cv.bind("<B1-Motion>", self._arrastou)
         self.cv.bind("<ButtonRelease-1>", self._soltou); self.cv.bind("<Button-3>", self._menu)
+        if MAC:
+            self.cv.bind("<Button-2>", self._menu); self.cv.bind("<Control-Button-1>", self._menu)
         self.menu = tk.Menu(self.root, tearoff=0)
         self.menu.add_command(label="Pausar / continuar (só no PC)", command=self._pausa)
         self.menu.add_command(label="Cancelar a gravação (vai pra descartadas)", command=lambda: self._acao(True))
@@ -1749,6 +1832,9 @@ class Tela:
             user32.SetWindowLongW(hw, GWL_EXSTYLE, est | 0x08000000 | 0x00000080)   # WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
         except Exception as e:
             log("noactivate: %s" % e)
+        if MAC:     # porte pro Mac: a bolinha em toda mesa (Space), sem o Mac pular de mesa quando ela aparece
+            try: mac.olho_em_toda_mesa()
+            except Exception as e: log("mesa: %r" % e)
         self._mostrar(False)
         self.root.after(50, self._tique)
 
@@ -1814,6 +1900,9 @@ class Tela:
         self.visivel = sim
         if sim:
             self.root.deiconify(); self.root.attributes("-topmost", True)
+            if MAC:
+                try: mac.olho_em_toda_mesa()
+                except Exception as e: log("mesa: %r" % e)
         else:
             self.root.withdraw()
 
@@ -1897,6 +1986,8 @@ class Tela:
             # depois de outra janela "sempre na frente" (ex.: o Lightshot) e o Chrome cobria o olho. Reafirma a cada 2 s, sem pegar foco.
             self._ult_topo = agora
             try:
+                if MAC:
+                    self.root.attributes("-topmost", True); self.root.lift()
                 hw = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
                 user32.SetWindowPos(hw, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)   # HWND_TOPMOST; SWP_NOSIZE|NOMOVE|NOACTIVATE
             except Exception as e:
@@ -2283,8 +2374,18 @@ class Painel:
 
 def main():
     painel = "--painel" in sys.argv
-    kernel32.CreateMutexW(None, False, "Global\\KakashiUnicoLuan")
-    if kernel32.GetLastError() == 183:      # já tem um aberto: só pede pra ele abrir a janelinha
+    if MAC:      # um Kakashi só: trava num arquivo (some sozinha quando o processo fecha)
+        import fcntl
+        global _TRAVA
+        _TRAVA = open(os.path.join(AQUI, "kakashi.trava"), "w")
+        try:
+            fcntl.flock(_TRAVA, fcntl.LOCK_EX | fcntl.LOCK_NB); ja_tem = False
+        except OSError:
+            ja_tem = True
+    else:
+        kernel32.CreateMutexW(None, False, "Global\\KakashiUnicoLuan")
+        ja_tem = kernel32.GetLastError() == 183
+    if ja_tem:      # já tem um aberto: só pede pra ele abrir a janelinha
         if painel:
             open(FLAG_PAINEL, "w").close()
         return
@@ -2292,8 +2393,9 @@ def main():
         open(FLAG_PAINEL, "w").close()
     os.makedirs(SESSOES, exist_ok=True)
     fila = queue.Queue()
-    threading.Thread(target=thread_atalhos, args=(fila,), daemon=True).start()
-    threading.Thread(target=atualizar.vigia, args=(FLAG_PAINEL, cfg, salvar_cfg, log), daemon=True).start()   # pacote da Fly
+    threading.Thread(target=thread_atalhos_mac if MAC else thread_atalhos, args=(fila,), daemon=True).start()
+    if not MAC:     # a atualização pelo GitHub ainda não foi portada pro Mac (porte do Gu, 02/11)
+        threading.Thread(target=atualizar.vigia, args=(FLAG_PAINEL, cfg, salvar_cfg, log), daemon=True).start()   # pacote da Fly
     log("ligado")
     k = Kakashi()
     threading.Thread(target=servidor, args=(k,), daemon=True).start()

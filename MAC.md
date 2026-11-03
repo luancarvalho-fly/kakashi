@@ -1,13 +1,41 @@
-# KAKASHI no Mac — em porte
+# KAKASHI no Mac
 
-**Estado (03/11/2026): o Kakashi RODA no Mac — portado e provado pelo Gu (Fly) em 02/11** (entra neste repositório assim que o
-porte for juntado e o Windows reconferido). O que foi provado no Mac dele: o gravador do PC (atalho fn+F1, voz, som do PC, tela, prints
-do «aqui» na tela Retina, janela da frente, elemento sob o mouse, link da aba da frente, `/kakashi` colado), cancelar (fn+Shift+F1), o
-painel do Premiere (.ccx + o servidor 7815: corte, trim com ripple, efeito, ajuste de valor) e ligar com o Mac (LaunchAgents).
-Escolhas que deram certo: som do PC pelo **ScreenCaptureKit** (sem driver, sem BlackHole), atalho por **CGEventTap**, Python e ffmpeg
-do **Homebrew**; permissões Gravação de Tela + Acessibilidade + Microfone + Automação. Ainda não: histórico do Chrome/Safari (o macOS
-bloqueia; o link vem da aba da frente), replay, só a tela principal, instalador/atualizador/PC check do Mac. O mapa abaixo é o de antes
-do porte (02/11): fica como referência de cada peça.
+**Estado (03/11/2026): o código do Mac ESTÁ neste repositório.** Portado e provado pelo Gu (Fly) em 02/11 num MacBook Pro com chip
+Apple (macOS 27, Premiere 26.5) e juntado no Kakashi do Luan em 03/11. É o MESMO código do Windows: cada arquivo troca só as peças do
+sistema pelas do `mac.py` (`MAC = sys.platform == "darwin"`); a lógica (sessão, relógio, pausa e pedaços, eventos, leitura) é uma só.
+O relatório completo do porte, peça por peça, está em `PORTE-MAC-DO-GU.md`.
+
+**Provado no Mac:** o gravador do PC (voz, som do PC, tela, prints do «aqui» na tela Retina, janela da frente, elemento sob o mouse,
+link da aba da frente, `/kakashi` colado), cancelar, o painel do Premiere (.ccx + o servidor 7815: corte, trim com ripple, efeito,
+ajuste de valor) e ligar com o Mac. **Ainda não:** histórico do Chrome/Safari (o macOS bloqueia o Python; o link vem da aba da frente),
+replay, vários monitores (só a tela principal), e o instalador, a atualização automática e o PC check (no Mac é à mão, abaixo). A pausa
+e os pedaços (PAUSAR / CONTINUAR, APAGAR N) chegaram depois do porte: são a mesma lógica, mas ainda não foram provados num Mac.
+
+## Instalar no Mac (pro Claude que estiver ajudando — um passo de cada vez, com o «pode» da pessoa)
+1. **Pasta:** `git clone https://github.com/luancarvalho-fly/kakashi` onde a pessoa quiser (o Gu usa `~/Documents/FLY MEDIA/Kakashi`).
+   Atualizar depois = `git pull` nessa pasta.
+2. **Programas (Homebrew):** `brew install python@3.14 python-tk@3.14 ffmpeg` (o Gu: Python 3.14.10, Tk 9.1, ffmpeg 9.0.2) e as
+   Command Line Tools do Xcode (`xcode-select --install`, pro `swiftc`).
+3. **Ambiente:** `python3.14 -m venv .venv` e `.venv/bin/pip install pillow psutil numpy pyobjc-framework-Quartz pyobjc-framework-Cocoa
+   pyobjc-framework-ApplicationServices` (+ `faster-whisper` se a fala for transcrita no próprio Mac pelo Tandera).
+4. **O som do Mac** (ScreenCaptureKit, sem driver): `cd som_mac && swiftc -O -o som_do_mac som_do_mac.swift`.
+5. **O config.json desta pessoa:** o atalho (`"atalho": "f1"` = fn+F1 no teclado do Mac; qualquer tecla que o `atalho.py` aceite),
+   `"transcricao"` (`"ardi"` ou `"tandera"` + `"tandera": "<pasta do clone do Tandera>"`), `"replay": false`. No `premiere/config.json`,
+   `"dispositivo_audio"` = o nome do microfone como o avfoundation lista (`ffmpeg -f avfoundation -list_devices true -i ""`).
+   Esses dois arquivos são DESTA pessoa: guarde uma cópia antes de cada `git pull` e reponha depois.
+6. **Permissões** (Ajustes do Sistema → Privacidade e Segurança), pro Python do Homebrew: **Gravação de Tela**, **Acessibilidade**,
+   **Microfone** e **Automação** (pra ler o link da aba da frente). Se o Homebrew atualizar o Python, o macOS pede de novo.
+7. **Rodar:** `.venv/bin/python kakashi.pyw` (o olho aparece no canto quando grava) e, pro Premiere, `.venv/bin/python premiere/servidor.py`
+   + o painel: monte o `.ccx` (um zip de `premiere/painel/manifest.json`, `index.html`, `main.js` e `icones/`) e dê dois cliques nele
+   (Creative Cloud), ou carregue pelo UXP Developer Tool. Ligar com o Mac: um LaunchAgent pra cada um (`~/Library/LaunchAgents/`,
+   `KeepAlive` só se cair) — mostre o .plist pra pessoa antes.
+8. **A skill `/kakashi`:** copie `skill/SKILL.md` pra `~/.claude/skills/kakashi/SKILL.md` e troque, no texto, a pasta do Windows
+   (`%LOCALAPPDATA%\Programs\Kakashi-Fly`, `.venv\Scripts\python.exe`, `\`) pela do clone no Mac (`.venv/bin/python`, `/`). As leis
+   da leitura são as mesmas.
+9. **Prova:** grave 10 s falando e mostrando uma página, conclua, e no Claude Code `/kakashi`: o `LEITURA.md` tem que trazer a fala, a
+   janela, o print do «aqui» e o link.
+
+## O mapa de antes do porte (02/11, referência de cada peça)
 
 **Como ler:** **[CÓDIGO]** = conferido no código · **[SABIDO]** = documentação pública, NÃO testada num Mac · **[TESTAR]** = hipótese.
 

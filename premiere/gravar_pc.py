@@ -79,7 +79,15 @@ def sem_acento(s):
     return "".join(c for c in unicodedata.normalize("NFKD", str(s or "")) if not unicodedata.combining(c)).lower().strip()
 
 
+MAC = sys.platform == "darwin"     # porte pro Mac (02/11): o som do Mac vem do som_mac/som_do_mac (ScreenCaptureKit)
+SOM_DO_MAC = Path(__file__).resolve().parent / "som_mac" / "som_do_mac"
+if not SOM_DO_MAC.exists():
+    SOM_DO_MAC = Path(__file__).resolve().parent.parent / "som_mac" / "som_do_mac"     # a cópia em premiere/
+
+
 def versao_lib():
+    if MAC:
+        return "ScreenCaptureKit (som_do_mac)"
     try:
         from importlib.metadata import version
         return "PyAudioWPatch " + version("PyAudioWPatch")
@@ -267,6 +275,49 @@ class FonteLoopback:
                 pass
 
 
+class FonteMac:
+    """Mac: o som que sai no Mac inteiro (qualquer saída), pelo ScreenCaptureKit, lido do som_do_mac (16 bits, 48 kHz,
+    estéreo). O ScreenCaptureKit segue a saída sozinho (fone conectou = continua): não há troca de saída pra perceber."""
+    def __init__(self, fila, gen, pedido, saida_padrao):
+        import subprocess
+        self.fila, self.gen = fila, gen
+        self.aviso = "" if not pedido else "no Mac o som do PC é o do Mac inteiro: a saída pedida ('%s') é ignorada" % pedido
+        self.segue_padrao = False
+        self.nome = "som do Mac (ScreenCaptureKit)"
+        self.taxa, self.canais = 48000, 2
+        self.proc = subprocess.Popen([str(SOM_DO_MAC)], stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.t0 = agora()
+        self.vivo = True
+        threading.Thread(target=self._ler, daemon=True).start()
+        threading.Thread(target=self._log, daemon=True).start()
+
+    def _ler(self):
+        bloco = 480 * 2 * self.canais          # 10 ms
+        while self.vivo:
+            b = self.proc.stdout.read(bloco)
+            if not b:
+                break
+            self.fila.put((self.gen, agora(), len(b) // (2 * self.canais), b))
+
+    def _log(self):
+        for linha in self.proc.stderr:
+            log("som_do_mac: " + linha.decode("utf-8", "replace").strip())
+
+    def problema(self):
+        if self.proc.poll() is not None:
+            return ("parou", "o som do Mac parou (som_do_mac saiu com %s: ver som_pc.log; falta a permissão Gravação de Tela e "
+                             "Áudio do Sistema?)" % self.proc.returncode)
+        return None
+
+    def fechar(self):
+        self.vivo = False
+        try:
+            self.proc.terminate(); self.proc.wait(3)
+        except Exception:
+            try: self.proc.kill()
+            except Exception: pass
+
+
 class FonteFalsa:
     """SO TESTE (nada toca): pacotes de 10 ms gerados pelo relogio. Saida 1 = 48 kHz estereo, tom de 0,5-1,0 s e de
     2,0-2,3 s, SEM pacote no resto (como o loopback com nada tocando); aos 3,0 s "troca de saida". Saida 2 = 44,1 kHz
@@ -334,6 +385,9 @@ def main():
     ap.add_argument("--falso-parou", action="store_true", help="so teste: a saida falsa 2 para sozinha 1 s depois de abrir")
     ap.add_argument("--listar", action="store_true", help="so lista as saidas de som (JSON no stdout) e sai")
     a = ap.parse_args()
+    if a.listar and MAC:
+        avisar(saidas=["som do Mac"], padrao="som do Mac", lib=versao_lib())
+        return
     if a.listar:
         try:
             import pyaudiowpatch as pa
@@ -377,7 +431,12 @@ def main():
         log(msg)
         avisar(evento=o_que, msg=msg, **kw)
 
-    if not a.falso:
+    if MAC and not a.falso and not SOM_DO_MAC.exists():
+        estado["erro"] = "falta o som_mac/som_do_mac (compilar: swiftc -O -o som_do_mac som_do_mac.swift)"
+        estado["terminou"], estado["fim"] = True, agora()
+        log(estado["erro"]); avisar(evento="erro", msg=estado["erro"]); salvar()
+        sys.exit(3)
+    if not a.falso and not MAC:
         try:
             import pyaudiowpatch  # noqa: F401
         except Exception as e:
@@ -407,7 +466,7 @@ def main():
     threading.Thread(target=ler_stdin, daemon=True).start()
 
     saida_padrao = None
-    if not a.falso:
+    if not a.falso and not MAC:
         try:
             saida_padrao = SaidaPadrao()
             saida_padrao.id()
@@ -424,7 +483,7 @@ def main():
             if a.falso:
                 fonte = FonteFalsa(fila, st["gen"], a.dispositivo, None, estado, 1.0 if a.falso_parou else None)
             else:
-                fonte = FonteLoopback(fila, st["gen"], a.dispositivo, saida_padrao)
+                fonte = (FonteMac if MAC else FonteLoopback)(fila, st["gen"], a.dispositivo, saida_padrao)
         except Exception as e:
             msg = "nao abriu o loopback da saida de som: %s" % (str(e) or type(e).__name__)
             if msg != st["falhou"]:

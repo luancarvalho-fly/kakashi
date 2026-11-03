@@ -15,7 +15,7 @@ import datetime, glob, json, os, re, subprocess, sys, tempfile, unicodedata, url
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, AQUI)
-import olho  # noqa: E402
+import comum as olho  # noqa: E402  (porte pro Mac: só as peças sem windll; no Windows dá no mesmo)
 
 WHISPER = "http://127.0.0.1:8178/inference"
 RASTRO_APP_PESSOAL = os.path.join(AQUI, "_sem_app_pessoal.jsonl")   # pacote da Fly: sem AppPessoal

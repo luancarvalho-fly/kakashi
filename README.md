@@ -21,7 +21,7 @@ Na mão (Windows): baixe o zip (botão verde **Code → Download ZIP**), extraia
 ## O que precisa
 | | |
 |---|---|
-| **Sistema** | **Windows 10/11.** Mac: já roda no Mac do Gu (porte de 02/11); entra aqui quando for juntado — ver `MAC.md`. |
+| **Sistema** | **Windows 10/11** (instalador automático) · **Mac** (à mão, pelo seu Claude: `MAC.md`; portado pelo Gu). |
 | **O gravador** | leve em qualquer PC (0,1–1% do processador). |
 | **A transcrição da fala** | é a parte pesada. Dois caminhos, o instalador ajuda a escolher: **ARDI** (o conector da Fly no seu Claude; centavos por gravação; qualquer PC) · **Tandera no seu PC** (de graça; no processador: ok em PC médio/forte, lento em PC fraco). |
 | **PC forte / RunPod** | o Kakashi em si não precisa. Quem vai usar a análise completa de vídeo (o **Tandera**) precisa de placa NVIDIA; sem ela, o Tandera roda numa máquina alugada por hora no **RunPod** (passo a passo no `RUNPOD.md` do Tandera). |
@@ -41,7 +41,8 @@ ficam). Cada versão é uma etiqueta `vAAAA.MM.DD`. O que mudou: aba **Commits**
 ## O que já foi testado
 O gravador é o mesmo que o Luan usa todo dia. Deste repositório (03/11/2026, no PC dele): o instalador numa pasta de teste, a leitura
 de uma gravação com a fala transcrita pelo Tandera clonado ao lado, e o atualizador olhando este repositório. Em outubro, a instalação
-limpa, o atalho escolhível e a janelinha. **Ainda não:** o painel do Premiere desta versão instalado num Premiere de outra pessoa.
+limpa, o atalho escolhível e a janelinha. **No Mac (Gu, 02/11):** gravador, som do PC, prints, cancelar, painel do Premiere com
+corte/trim/efeito. **Ainda não:** o painel do Premiere desta versão num Premiere de outra pessoa no Windows, e a pausa/pedaços no Mac.
 
 ## Privacidade
 Tudo fica no seu PC (`%LOCALAPPDATA%\Programs\Kakashi-Fly\sessoes`). Só o áudio da sua voz sai do PC, e só se você escolheu transcrever
@@ -49,4 +50,4 @@ pela ARDI ou pelo RunPod. Senhas copiadas de gerenciador de senha nunca são gua
 
 ## Mais
 `LEIA-ME.md` (o manual), `INSTALAR-COM-CLAUDE.md` (o passo a passo do instalador), `skill/SKILL.md` (como o Claude lê uma gravação),
-`MAC.md` (o porte pro Mac).
+`MAC.md` (instalar no Mac) e `PORTE-MAC-DO-GU.md` (o relatório do porte).

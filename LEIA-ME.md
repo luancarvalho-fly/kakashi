@@ -33,7 +33,8 @@ monitor). A **transcrição** vai pela sua conta **ARDI** por padrão (centavos 
 **TANDERA** (o motor de análise da Fly: a peça «fala», no processador; precisa da pasta do Tandera, que vem no pacote).
 
 ## O que esta versão NÃO tem
-- **Mac**: o gravador é feito pro Windows; o porte pro Mac está sendo feito (02/11/2026) a partir do pacote «Kakashi-Tandera-pro-Mac».
+- **Mac**: o código do Mac está aqui (porte do Gu, provado em 02/11), mas sem instalador nem atualização automática: no Mac a
+  instalação é à mão, pelo `MAC.md` (o seu Claude faz com você).
 - O que foi testado (27/10): o gravador no PC do Luan (é o mesmo código que ele usa todo dia); a instalação limpa, o atalho escolhível,
   a janelinha e a leitura (PC, PC → Premiere, já lidas) numa pasta de teste no PC dele. Ainda NÃO rodou no PC de outra pessoa, e o
   painel do Premiere desta versão não foi instalado em nenhum Premiere. Se der erro, grave com o próprio Kakashi (ou mande o print)
