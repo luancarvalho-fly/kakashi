@@ -396,7 +396,18 @@ def main():
     juntos = meta.get("replay_juntado") or []
     desloc_fala = rep if (rep and "fala" not in juntos) else 0        # replay que não juntou: o fala.wav começa no atalho
     desloc_tela = rep if (rep and "tela" not in juntos) else 0
-    evs = [json.loads(l) for l in open(os.path.join(pasta, "eventos.jsonl"), encoding="utf-8") if l.strip()]
+    # 04/11 (queda de luz no meio de uma correção): o disco deixou uma linha de zeros no eventos.jsonl e a leitura inteira parava
+    # aí. Linha quebrada agora é pulada e contada, nunca derruba a leitura.
+    evs, quebradas = [], 0
+    for l in open(os.path.join(pasta, "eventos.jsonl"), encoding="utf-8", errors="replace"):
+        if not l.strip("\x00 \r\n\t"):
+            continue
+        try:
+            evs.append(json.loads(l))
+        except ValueError:
+            quebradas += 1
+    if quebradas:
+        print("aviso: %d linha(s) quebrada(s) no eventos.jsonl (queda de energia?) foram puladas" % quebradas, file=sys.stderr)
     if not any(e.get("tipo") == "app_pessoal" for e in evs):
         evs += rastro_app_pessoal(ini, olho.fim_da_sessao(meta), meta)
     evs.sort(key=lambda e: e.get("t", 0))
