@@ -25,6 +25,7 @@ Na mão (Windows): baixe o zip (botão verde **Code → Download ZIP**), extraia
 | **O gravador** | leve em qualquer PC (0,1–1% do processador). |
 | **A transcrição da fala** | é a parte pesada. Dois caminhos, o instalador ajuda a escolher: **ARDI** (o conector da Fly no seu Claude; centavos por gravação; qualquer PC) · **Tandera no seu PC** (de graça; no processador: ok em PC médio/forte, lento em PC fraco). |
 | **PC forte / RunPod** | o Kakashi em si não precisa. Quem vai usar a análise completa de vídeo (o **Tandera**) precisa de placa NVIDIA; sem ela, o Tandera roda numa máquina alugada por hora no **RunPod** (passo a passo no `RUNPOD.md` do Tandera). |
+| **Chrome** | opcional e recomendado: a extensão `chrome\` (carregar uma vez em `chrome://extensions`, Modo do desenvolvedor → Carregar sem compactação) faz o Kakashi saber o elemento da página debaixo do mouse pelo código: HTML, seletor, link, imagem e, em app local, o arquivo:linha. |
 | **Premiere** | opcional: com o Premiere 25.6+ o instalador põe o painel KAKASHI (grava a timeline junto). |
 
 ## Usar
@@ -46,7 +47,8 @@ corte/trim/efeito. **Ainda não:** o painel do Premiere desta versão num Premie
 
 ## Privacidade
 Tudo fica no seu PC (`%LOCALAPPDATA%\Programs\Kakashi-Fly\sessoes`). Só o áudio da sua voz sai do PC, e só se você escolheu transcrever
-pela ARDI ou pelo RunPod. Senhas copiadas de gerenciador de senha nunca são guardadas.
+pela ARDI ou pelo RunPod. Senhas copiadas de gerenciador de senha nunca são guardadas. A extensão do Chrome só fala com o Kakashi do seu PC (127.0.0.1), só
+enquanto grava, e nunca lê o que está digitado num campo.
 
 ## Mais
 `LEIA-ME.md` (o manual), `INSTALAR-COM-CLAUDE.md` (o passo a passo do instalador), `skill/SKILL.md` (como o Claude lê uma gravação),

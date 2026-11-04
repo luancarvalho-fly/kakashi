@@ -1,0 +1,26 @@
+{
+  "manifest_version": 3,
+  "name": "Kakashi — olho no Chrome",
+  "version": "1.0.0",
+  "description": "Enquanto o Kakashi grava, diz qual elemento da página está debaixo do mouse (HTML, seletor e, em app local, o arquivo do código-fonte).",
+  "icons": {"16": "icone16.png", "48": "icone48.png", "128": "icone128.png"},
+  "background": {"service_worker": "fundo.js"},
+  "host_permissions": ["http://127.0.0.1:7816/*"],
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["fonte.js"],
+      "world": "MAIN",
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["<all_urls>"],
+      "js": ["olho.js"],
+      "all_frames": true,
+      "match_about_blank": true,
+      "run_at": "document_start"
+    }
+  ]
+}

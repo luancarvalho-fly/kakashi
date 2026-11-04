@@ -37,6 +37,8 @@ Pedido dele: "um atalho pra eu poder começar a gravar, sem ter que clicar em na
     gravando PC ou AppPessoal, quando o "SEM SOM" acende (20 s em silêncio digital) → sons\\sharingan.wav 2x na saída padrão.
     Uma vez por queda (de novo só se a voz voltar e morrer de novo). No Premiere quem toca é o CORRETOR. Config "alerta_som": false desliga.
 - Porta 7816: GET /status (estado: gravando/parado — o Claude confere antes de reiniciar) · POST /app_pessoal (card sob o mouse)
+    · POST /chrome (04/11: a extensão chrome\\ manda o ELEMENTO DA PÁGINA sob o mouse, pelo código: tag, seletor, texto, link,
+    imagem, componente e arquivo:linha em app local; vira o evento "chrome" no eventos.jsonl)
 Só CPU. Som só o do aviso de microfone morto (P40).
 """
 import array, collections, ctypes, ctypes.wintypes as wt, datetime, glob, json, os, queue, re, shutil, subprocess, sys, threading, time
@@ -1680,6 +1682,8 @@ def servidor(k):
             self._json(404, {"ok": False})
 
         def do_POST(self):
+            if self.path.split("?")[0] == "/chrome":
+                return self._chrome()
             if self.path.split("?")[0] != "/app_pessoal":
                 return self._json(404, {"ok": False})
             o = self.headers.get("Origin")
@@ -1698,6 +1702,44 @@ def servidor(k):
             for c in ("sx", "sy"):
                 if isinstance(d.get(c), (int, float)):
                     ev[c] = int(d[c])
+            k.vigia.emitir(ev)
+            self._json(200, {"ok": True})
+
+        def _chrome(self):
+            """04/11 (ele: «colocasse o mouse do Kakashi nas coisas do PC, do Chrome, pelo código... pelo código fonte, pra saber o
+            elemento»): a extensão chrome\\ manda o elemento da página debaixo do mouse (tag, seletor, texto, link, imagem e, em app
+            local, componente + arquivo:linha) na pausa e no clique. Só a extensão (origem chrome-extension://) escreve aqui."""
+            o = self.headers.get("Origin") or ""
+            if o and not o.startswith("chrome-extension://"):
+                return self._json(403, {"ok": False})
+            try:
+                d = json.loads(self.rfile.read(min(int(self.headers.get("Content-Length") or 0), 40000)).decode("utf-8") or "{}")
+            except ValueError:
+                return self._json(400, {"ok": False})
+            if k.alvo() is None:
+                return self._json(200, {"ok": False, "motivo": "o Kakashi não está gravando"})
+            ev = {"tipo": "chrome", "motivo": str(d.get("motivo") or "")[:20]}
+            for c, n in (("url", 500), ("titulo", 120), ("tag", 30), ("id", 120), ("classes", 160), ("html", 300), ("seletor", 300),
+                         ("texto", 200), ("texto_pai", 160), ("rotulo", 120), ("papel", 40), ("link", 500), ("imagem", 400)):
+                if d.get(c) not in (None, ""):
+                    ev[c] = str(d[c])[:n]
+            for c in ("cx", "cy", "sx", "sy", "aba", "frame"):
+                if isinstance(d.get(c), (int, float)):
+                    ev[c] = int(d[c])
+            if isinstance(d.get("ret"), list):
+                ev["ret"] = [int(v) for v in d["ret"][:4] if isinstance(v, (int, float))]
+            if isinstance(d.get("dpr"), (int, float)):
+                ev["dpr"] = round(float(d["dpr"]), 2)
+            if d.get("topo") is False:
+                ev["iframe"] = True
+            if d.get("senha"):
+                ev["senha"] = True
+            f = d.get("fonte")
+            if isinstance(f, dict):
+                ev["fonte"] = {"framework": str(f.get("framework") or "")[:20], "arquivo": str(f.get("arquivo") or "")[:300],
+                               "componentes": [str(x)[:60] for x in (f.get("componentes") or [])[:5]]}
+                if isinstance(f.get("marcas"), dict):
+                    ev["fonte"]["marcas"] = {str(a)[:40]: str(b)[:160] for a, b in list(f["marcas"].items())[:6]}
             k.vigia.emitir(ev)
             self._json(200, {"ok": True})
 

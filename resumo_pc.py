@@ -322,6 +322,34 @@ def descrever_elemento(e):
     return txt
 
 
+def descrever_chrome(e):
+    """04/11: o elemento da página que a extensão do Chrome leu no código (tag de abertura, texto, seletor, link, imagem e, em app
+    local, componente + arquivo:linha). Ex.: `<h1 class="hero">` «FLY HUB» · `section.hero > h1` · código: React Hero ← App · src/Hero.tsx:42"""
+    partes = ["`%s`" % e.get("html", "<%s>" % e.get("tag", "?"))]
+    txt = e.get("texto") or e.get("rotulo")
+    if txt:
+        partes.append("«%s»" % txt[:120])
+    elif e.get("texto_pai"):
+        partes.append("(dentro de «%s»)" % e["texto_pai"][:80])
+    if e.get("seletor"):
+        partes.append("`%s`" % e["seletor"])
+    if e.get("link"):
+        partes.append("link %s" % e["link"])
+    if e.get("imagem"):
+        partes.append("imagem %s" % e["imagem"][:200])
+    f = e.get("fonte") or {}
+    if f.get("componentes") or f.get("arquivo"):
+        partes.append("código: %s%s%s" % (f.get("framework", ""), (" " + " ← ".join(f["componentes"])) if f.get("componentes") else "",
+                                           (" · %s" % f["arquivo"]) if f.get("arquivo") else ""))
+    if f.get("marcas"):
+        partes.append("marcas: " + ", ".join("%s=%s" % kv for kv in f["marcas"].items()))
+    if e.get("iframe"):
+        partes.append("(num iframe)")
+    if e.get("senha"):
+        partes.append("(campo de senha)")
+    return " · ".join(partes)
+
+
 def linha_evento(x, uia_por_clique):
     tp = x.get("tipo"); tt = mmss(x.get("t", 0))
     if tp == "janela":
@@ -336,6 +364,8 @@ def linha_evento(x, uia_por_clique):
     if tp == "app_pessoal":
         return "- %s card do AppPessoal (%s): %s · %s%s" % (tt, x.get("acao"), x.get("id"), (x.get("titulo") or "")[:70],
                                                        " [%s]" % x["fonte"] if x.get("fonte") else "")
+    if tp == "chrome":      # 04/11: o elemento da página pelo código (extensão chrome\)
+        return "- %s Chrome (%s): %s" % (tt, (x.get("motivo") or "").replace("_", " "), descrever_chrome(x))
     if tp == "copiou":
         o = x.get("o_que")
         if o in ("texto", "link"):
@@ -418,8 +448,9 @@ def main():
               "duração %s · microfone: %s · janela no atalho: %s — %s" % (mmss(dur), meta.get("microfone"), j0.get("app"), j0.get("titulo")),
               "arquivos: fala.wav (voz) · pc.wav (som do PC) · tela.mp4 (5 q/s, 1920) · eventos.jsonl (inclui o caminho do mouse) · "
               "_prints\\ (nativos, *_perto = recorte 800x500) · _copias\\ · _refs\\ · links.json",
-              "contagem: %d prints nativos · %d elementos sob o mouse · %d links · %d cópias · %d cards do AppPessoal" % (
-                  len(prints), sum(1 for e in evs if e.get("tipo") == "sob_mouse"), len(links), n_cop,
+              "contagem: %d prints nativos · %d elementos sob o mouse · %d elementos do Chrome (código) · %d links · %d cópias · %d cards do AppPessoal" % (
+                  len(prints), sum(1 for e in evs if e.get("tipo") == "sob_mouse"), sum(1 for e in evs if e.get("tipo") == "chrome"),
+                  len(links), n_cop,
                   sum(1 for e in evs if e.get("tipo") == "app_pessoal"))]
     if rep:
         linhas.append("REPLAY IGNORADO: 0:00–%s eram os %d s ANTES do atalho (buffer, desligado em 02/11) e ficam fora desta leitura; "

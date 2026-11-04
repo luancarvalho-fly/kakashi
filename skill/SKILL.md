@@ -53,6 +53,10 @@ Pasta do Kakashi: `%LOCALAPPDATA%\Programs\Kakashi-Fly\` (abaixo, "a pasta"). Py
   disser REPLAY (ou «REPLAY IGNORADO»), a parte de antes do atalho não se lê, nem quadro nem áudio dela. Trechos de "voz muda"
   (`sessao.json` → `voz_muda`) entram como "não ouvido", nunca somem. **Pausa**: se a sessão tem `pedacos` no `sessao.json`, ela foi
   gravada em pedaços (PAUSAR / CONTINUAR); o relógio já está sem as pausas e os pedaços apagados pela pessoa não existem.
+- **Elemento do Chrome pelo código** (extensão `chrome\`, instalada uma vez no Chrome): as linhas «Chrome (parou/clique)» dizem o
+  elemento da página de verdade: tag de abertura do HTML, texto, seletor, link, imagem (o endereço do PNG que a pessoa pede) e, em
+  app local em modo de desenvolvimento (React, Vue, Svelte), `código:` = componente + arquivo:linha → abrir esse arquivo direto.
+  Na página, essa linha vence o «mouse parou» do Windows/Mac (que só dá o papel e o nome). Valor digitado em campo nunca vem.
 
 ## 4. Entender — a gravação é pra NIVELAR o Claude, não só pra cumprir pedido
 **A EXPLICAÇÃO VEM PRIMEIRO.** O que a pessoa FALA, do começo ao fim, junto do que ela fazia em cada minuto, é o centro. Comparar o

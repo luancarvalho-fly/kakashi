@@ -29,7 +29,13 @@
 6. **Mostre o resumo** que o instalador escreve e diga como usar: o atalho começa e conclui, o de cancelar cancela (vai pra
    `_descartadas`, nunca apaga), PAUSAR / CONTINUAR na janelinha, e depois de gravar é só digitar **/kakashi** aqui no Claude Code. O
    atalho dá pra trocar quando quiser: atalho **KAKASHI** na área de trabalho → **TROCAR O ATALHO**.
-7. Se o Windows avisar "O Windows protegeu o computador" num atalho: "Mais informações" → "Executar assim mesmo".
+7. **A extensão do Chrome** (recomendado; 1 minuto, a pessoa clica): ela diz ao Kakashi QUAL elemento da página está debaixo do
+   mouse, pelo código (HTML, seletor, link, o endereço da imagem e, em app local, o arquivo:linha). Sem ela, o Kakashi só sabe
+   «um título chamado X». Passo a passo pra pessoa: no Chrome, abrir `chrome://extensions` → ligar **Modo do desenvolvedor** (canto
+   de cima, à direita) → **Carregar sem compactação** → escolher a pasta `%LOCALAPPDATA%\Programs\Kakashi-Fly\chrome`. Pronto: o
+   Sharingan aparece na lista. Ela só manda alguma coisa enquanto o Kakashi grava, e só pro próprio PC (127.0.0.1); o que a pessoa
+   digita em campo nunca sai. Depois de uma atualização do Kakashi: botão de recarregar (↻) da extensão nessa mesma página.
+8. Se o Windows avisar "O Windows protegeu o computador" num atalho: "Mais informações" → "Executar assim mesmo".
 
 Atualizar: sozinho (a janelinha mostra ATUALIZAR quando sai versão nova), ou rodar o `instalar.py` da versão nova (as gravações, o
 config e o atalho ficam).

@@ -32,8 +32,11 @@ e os pedaços (PAUSAR / CONTINUAR, APAGAR N) chegaram depois do porte: são a me
 8. **A skill `/kakashi`:** copie `skill/SKILL.md` pra `~/.claude/skills/kakashi/SKILL.md` e troque, no texto, a pasta do Windows
    (`%LOCALAPPDATA%\Programs\Kakashi-Fly`, `.venv\Scripts\python.exe`, `\`) pela do clone no Mac (`.venv/bin/python`, `/`). As leis
    da leitura são as mesmas.
-9. **Prova:** grave 10 s falando e mostrando uma página, conclua, e no Claude Code `/kakashi`: o `LEITURA.md` tem que trazer a fala, a
-   janela, o print do «aqui» e o link.
+9. **A extensão do Chrome** (recomendado; a pessoa clica): `chrome://extensions` → **Modo do desenvolvedor** → **Carregar sem
+   compactação** → a pasta `chrome/` do clone. Ela diz ao Kakashi o elemento da página debaixo do mouse pelo código (HTML, seletor,
+   link, imagem e, em app local, o arquivo:linha) e só fala com o 127.0.0.1:7816 enquanto grava. Depois de um `git pull`: botão ↻ dela.
+10. **Prova:** grave 10 s falando e mostrando uma página, conclua, e no Claude Code `/kakashi`: o `LEITURA.md` tem que trazer a fala, a
+   janela, o print do «aqui», o link e (com a extensão) as linhas «Chrome (parou/clique)».
 
 ## O mapa de antes do porte (02/11, referência de cada peça)
 
