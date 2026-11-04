@@ -813,6 +813,18 @@ class OlhoPremiere(GravacaoPC):
                      "inicio_local": datetime.datetime.fromtimestamp(self.t0).replace(microsecond=0).isoformat(),
                      "inicio_epoch": self.t0, "gravacao_epoch": self.t0, "replay_s": 0.0, "t_gravacao_inicio": round(self.relogio[0], 2),
                      "janela_inicial": j, "erros": []}
+        # 04/11 (queda de luz): o Kakashi reabriu e o olho voltou numa sessão que já tinha começo; reescrever o começo pra 17:17 jogava
+        # fora os links do Chrome e o rastro dos outros apps de 16:51–17:15 na leitura. Sessão já começada = o começo antigo fica.
+        try:
+            velho = json.load(open(os.path.join(self.pasta, "sessao.json"), encoding="utf-8"))
+            if velho.get("sessao_premiere") == self.meta["sessao_premiere"] and velho.get("inicio_epoch"):
+                for c in ("inicio_local", "inicio_epoch", "gravacao_epoch", "t_gravacao_inicio", "janela_inicial", "erros"):
+                    if c in velho:
+                        self.meta[c] = velho[c]
+                self.meta.setdefault("reaberto", []).extend(velho.get("reaberto", []))
+                self.meta["reaberto"].append(datetime.datetime.fromtimestamp(self.t0).replace(microsecond=0).isoformat())
+        except (OSError, ValueError):
+            pass
         self.procs = []
         self.parar_ev = threading.Event()
         self.concluida = threading.Event()
@@ -853,6 +865,8 @@ class OlhoPremiere(GravacaoPC):
     def _salvar_imagem(self, im, quando, nome):
         if not self.viva():
             raise OSError("a sessão do Premiere saiu do lugar")
+        if not self.relogio[2]:                         # 04/11: pausado = a imagem copiada também não entra
+            raise OSError("o painel do Premiere está pausado")
         return GravacaoPC._salvar_imagem(self, im, quando, nome)
 
     def fala_wav(self):
@@ -1382,17 +1396,32 @@ class Kakashi:
 
     def alvo(self):
         """onde o olho escreve agora: a gravação do PC (tem prioridade, inclusive no ~1 s da troca) ou o olho do Premiere.
-        03/11: PC pausado = o olho não guarda nada (nem print)"""
+        03/11: PC pausado = o olho não guarda nada (nem print).
+        04/11 (queda de luz no meio de uma correção do Premiere): Premiere pausado também não — o CORRETOR reabriu a sessão PAUSADA
+        e o olho seguiu salvando print («2320_parou_*.jpg») enquanto nada gravava"""
         if self.pc is not None:
             return None if self.pc.pausado else self.pc
-        return self.olho_prem
+        o = self.olho_prem
+        return o if o is not None and o.relogio[2] else None
 
     def pausar_continuar(self):
-        """03/11: o PAUSAR/CONTINUAR do painel do Premiere, aqui no PC (só a gravação do PC; o Premiere e o AppPessoal têm o seu)"""
+        """03/11: o PAUSAR/CONTINUAR do painel do Premiere, aqui no PC.
+        04/11 (depois da queda de luz; ele: «o Kakashi é o Kakashi, é meu computador... não tem que entrar no Premiere para poder parar
+        a pausa»): a gravação do Premiere também pausa/continua daqui — direto no CORRETOR, com ou sem o painel aberto. Sem o painel,
+        a voz e a tela seguem (o CORRETOR grava) e o olho do PC registra o resto; a timeline volta quando o painel abrir."""
         g = self.pc
-        if g is None:
-            return False
-        return g.continuar() if g.pausado else g.pausar()
+        if g is not None:
+            return g.continuar() if g.pausado else g.pausar()
+        st = http("http://127.0.0.1:7815/status", t=2)
+        if st and st.get("estado") == "pausado":
+            r = http("http://127.0.0.1:7815/retomar", {}, t=30) or {}
+            log("Premiere: CONTINUAR pelo Kakashi → %s" % (r.get("estado") or r.get("erro") or r))
+            return r.get("estado") == "gravando"
+        if st and st.get("estado") == "gravando":
+            r = http("http://127.0.0.1:7815/pausar", {}, t=30) or {}
+            log("Premiere: PAUSAR pelo Kakashi → %s" % (r.get("estado") or r.get("erro") or r))
+            return r.get("estado") == "pausado"
+        return False
 
     def _vigiar_olho_premiere(self):
         """23/10 (ele: "faz o Kakashi ser o mais completo possível... É o olho de Deus, mano, é minha tela"): o painel do Premiere
@@ -1435,6 +1464,8 @@ class Kakashi:
         st = http("http://127.0.0.1:7815/status", t=1)
         if st and st.get("estado") in ("gravando", "pausado"):
             self.quem_cache = "premiere"
+            self.prem_pausado = st.get("estado") == "pausado"      # 04/11: a janela dizia «GRAVANDO» com o painel pausado
+            self.prem_painel_s = st.get("painel_visto_ha_s")
             return "premiere", time.time() - (st.get("t_gravacao") or 0)
         self.quem_cache = None
         if st is not None:        # nada gravando (ele concluiu pelo botão do painel): a parte PC de uma troca não é mais "a atual"
@@ -1592,7 +1623,21 @@ class Kakashi:
                 if self.troca_pc is not None:        # começou como PC e trocou: as duas partes são uma correção só
                     threading.Thread(target=self._descartar_parte_pc, args=(self.troca_pc,), daemon=True).start()
             else:
-                http("http://127.0.0.1:7815/comando", {"acao": "concluir"})
+                # 04/11 (queda de luz): o PC voltou com a sessão PAUSADA e o Premiere fechado; cada aperto virava um «concluir» na fila
+                # do painel, que não estava lá (8 na fila). Agora: aperto repetido em 15 s não conta, e sem o painel (nada há 5 s) o
+                # próprio CORRETOR conclui.
+                if time.time() - getattr(self, "ult_concluir_prem", 0) < 15:
+                    log("atalho: concluir do Premiere repetido em menos de 15 s, ignorado")
+                    self.fora = None; self.troca_pc = None; return
+                self.ult_concluir_prem = time.time()
+                visto = getattr(self, "prem_painel_s", None)
+                if visto is None or visto > 5:
+                    def _direto():
+                        r = http("http://127.0.0.1:7815/concluir", {}, t=300) or {}
+                        log("atalho: painel do Premiere fechado, o CORRETOR concluiu direto: %s" % (r.get("sessao") or r.get("erro") or r))
+                    threading.Thread(target=_direto, daemon=True).start()
+                else:
+                    http("http://127.0.0.1:7815/comando", {"acao": "concluir"})
                 threading.Thread(target=colar_kakashi, args=(False,), daemon=True).start()   # no Premiere só copia
             self.fora = None; self.troca_pc = None; return
         if cancelar:
@@ -2115,7 +2160,7 @@ class Tela:
     def _ler_estado(self):
         q, d = self.k.estado()
         self.quem, self.desde = q, d
-        self.pausado = q == "pc" and self.k.pc is not None and self.k.pc.pausado
+        self.pausado = (q == "pc" and self.k.pc is not None and self.k.pc.pausado) or (q == "premiere" and getattr(self.k, "prem_pausado", False))
         recente, mudo = self.k.medir_voz() if q else (True, 0.0)
         if not q:
             self.k.voz_viva = None; self.k.mudo = 0.0
@@ -2127,7 +2172,7 @@ class Tela:
         cx, cy = W - R - int(4 * ESC), H // 2 + (BARRA_H if self.barra else 0)
         grav = bool(self.quem)
         x0 = 4
-        if grav and self.quem == "pc":       # 04/11: PAUSAR (duas barras) / CONTINUAR (triângulo), sem abrir a janelinha
+        if grav and self.quem in ("pc", "premiere"):   # 04/11: PAUSAR (duas barras) / CONTINUAR (triângulo), sem abrir a janelinha (o Premiere também)
             b0, b1 = (4, cy - 13), (4 + BT_W, cy + 13)
             if self.pausado:
                 botao_8bits(cv, b0[0], b0[1], b1[0], b1[1], "#d6001c", "#ff6a6a", "#5e000c")
@@ -2175,7 +2220,7 @@ class Tela:
             if mudo:          # P20: gravação muda há > 15 s: olho cinza + "SEM SOM" piscando (vermelho / cinza a cada 0,5 s)
                 txt = "SEM SOM %d:%02d" % (s // 60, s % 60)
             elif self.pausado:
-                txt = "PC PAUSA %d:%02d" % (s // 60, s % 60)
+                txt = "%s PAUSA %d:%02d" % ("PR" if self.quem == "premiere" else "PC", s // 60, s % 60)   # cabe do lado do botão
             x1 = cx - R - 8
             cor_txt = ("vermelho" if int(time.time() * 2) % 2 == 0 else "cinza") if mudo else ("amarelo" if amarelo else "branco")
             cv.create_rectangle(x0, cy - 13, x1, cy + 13, fill="#FFE600" if (amarelo and not mudo) else "#0B0B0D", outline="")
@@ -2344,8 +2389,8 @@ class Painel:
         cv.configure(cursor="arrow" if est == "off" else "hand2")
 
     def _principal(self):
-        """parado = INICIAR; gravando no PC = PAUSAR/CONTINUAR (igual ao painel do Premiere); AppPessoal/Premiere = CONCLUIR (eles têm o seu)"""
-        if self.tela.quem == "pc":
+        """parado = INICIAR; gravando no PC ou no Premiere = PAUSAR/CONTINUAR (04/11: o Premiere também, sem abrir o painel); AppPessoal = CONCLUIR"""
+        if self.tela.quem in ("pc", "premiere"):
             self.tela._pausa()
         else:
             self.tela._acao(False)
@@ -2497,7 +2542,7 @@ class Painel:
             self.ponto.configure(bg=("#FFE600" if pausa else "#5b5b63" if mudo else "#ff1e2e") if grav else "#39d353")
             self._texto(self.lb_status, ("PAUSADO · " + quem if pausa else "GRAVANDO · " + quem + (" · SEM SOM" if mudo else "")) if grav
                         else "PRONTO · NADA GRAVANDO", ("amarelo" if pausa else "vermelho" if mudo else "branco") if grav else "cinza")
-            if grav and self.tela.quem == "pc":
+            if grav and self.tela.quem in ("pc", "premiere"):     # 04/11: o Premiere também pausa/continua daqui
                 self._pintar(self.bt_grav, "vermelho" if pausa else "neutro", "CONTINUAR" if pausa else "PAUSAR", 3)
                 self._pintar(self.bt_conc, "concluir", "CONCLUIR")
             else:
