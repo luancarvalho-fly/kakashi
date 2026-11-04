@@ -30,7 +30,8 @@ Na mão (Windows): baixe o zip (botão verde **Code → Download ZIP**), extraia
 
 ## Usar
 - **O atalho** começa e conclui. O mesmo + **Shift** cancela (vai pra `sessoes\_descartadas`, nunca apaga).
-- Gravando no PC: **PAUSAR / CONTINUAR** na janelinha; cada continuação vira um pedaço, e **APAGAR N** tira um pedaço da correção.
+- Gravando no PC: **pausar / continuar** no botão ao lado do olho do canto (ou na janelinha); cada continuação vira um pedaço.
+  Pausado, o trilho dos pedaços aparece em cima do olho e **APAGAR N** tira um pedaço da correção (**VOLTAR N** devolve).
 - **A correção é do atalho ao atalho**: o que você fez antes de apertar ou depois de concluir não entra.
 - Depois de gravar: **/kakashi** no Claude Code.
 - Trocar o atalho e procurar atualização: atalho **KAKASHI** na área de trabalho.

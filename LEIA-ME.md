@@ -18,9 +18,11 @@ Na mão: extraia o zip e dê dois cliques no `Instalar.bat`.
   descartar).
 - **Premiere**: com o painel KAKASHI aberto no Premiere, o atalho grava pelo painel (com a timeline). Se você começa a gravar em outra
   janela e entra no Premiere, ele passa sozinho pro Premiere: é uma gravação só.
-- **Pausar e apagar um pedaço**: gravando no PC, a janelinha tem **PAUSAR / CONTINUAR** (ou o menu do olho → "Pausar / continuar").
-  Cada continuação vira um pedaço no trilho; clique num pedaço e **APAGAR N** tira ele da correção (**VOLTAR N** devolve). No
-  concluir os pedaços viram uma gravação só, sem as pausas.
+- **Pausar e apagar um pedaço**: gravando no PC, o olho do canto tem o botão **pausar** (duas barras amarelas) / **continuar**
+  (triângulo), sem abrir janela nenhuma. Pausado, aparece em cima do olho o trilho dos pedaços com **APAGAR N**, já apontando o
+  pedaço que acabou de gravar: um clique apaga (**VOLTAR N** devolve), clique noutro pedaço pra trocar. Continuou, o trilho some.
+  A janelinha tem os mesmos controles (PAUSAR / CONTINUAR, o trilho, APAGAR N). No concluir os pedaços viram uma gravação só, sem
+  as pausas.
 - **A correção é do atalho ao atalho**: o que você fez antes de apertar ou depois de concluir não entra. O **replay** (guardar os
   últimos 2 min e pôr no começo) vem **desligado**; quem quiser liga em `config.json` → `"replay": true` (o ícone de microfone em uso
   do Windows fica aceso o tempo todo).

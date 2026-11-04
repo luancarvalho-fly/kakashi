@@ -1816,7 +1816,40 @@ except Exception:
 # o olho é o do painel do Premiere: arte de 40x40 ampliada 4x nos PNGs (160) → aqui 1 bloco = 1 px (40), ou 2 px (80) no config "olho": 80
 ICONES = os.path.join(CORRETOR, "painel", "icones")
 OLHO = int(cfg().get("olho", 40))
-W, H, R = int(220 * ESC), int(max(64, OLHO + 16) * ESC), int(OLHO * ESC) // 2
+W, H, R = int(220 * ESC) + 34, int(max(64, OLHO + 16) * ESC), int(OLHO * ESC) // 2
+# 04/11 (Kakashi 15:25, ele: «coloca um botãozinho aqui de play pause pra poder pausar, e aqui em cima, como outra barra, aquela
+# barrinha de pausa para poder apagar... E não o tempo todo, só quando tiver pausado... Para não ter que ficar abrindo aqui»):
+# o botão PAUSAR/CONTINUAR (30x26, à esquerda do tempo) e, só PAUSADO, a barra dos pedaços + APAGAR N em cima do olho
+BT_W, BARRA_H, APAGAR_W = 30, 34, 110
+
+
+def desenhar_trilho(cv, x, y, w, h, ps, sel):
+    """os pedaços da gravação do PC (o da janelinha e o de cima do olho): vermelho = vale, vazado = apagado, vivo = gravando,
+    contorno amarelo = selecionado. Devolve [(x0, x1, pedaço)] pro clique."""
+    cv.create_rectangle(x, y, x + w, y + h, fill="#121217", outline="")
+    blocos = []
+    if not ps:
+        return blocos
+    agora = time.time()
+    durs = [p["dur"] if p["dur"] is not None else max(0.5, agora - p["epoch"]) for p in ps]
+    tot = sum(durs) or 1; xx = x + 2; livre = w - 4 - 3 * (len(ps) - 1)
+    for p, d in zip(ps, durs):
+        bw = max(6, int(livre * d / tot)); x1 = min(x + w - 2, xx + bw)
+        if p["apagado"]:
+            cv.create_rectangle(xx, y + 4, x1, y + h - 4, fill="#1a1a20", outline="#3a3a44")
+        else:
+            cv.create_rectangle(xx, y + 4, x1, y + h - 4, fill="#ff1e2e" if p["dur"] is None else "#d6001c", outline="")
+        if sel == p["n"]:
+            cv.create_rectangle(xx - 1, y + 2, x1 + 1, y + h - 2, outline="#FFE600", width=2)
+        blocos.append((xx, x1, p)); xx = x1 + 3
+    return blocos
+
+
+def botao_8bits(cv, x0, y0, x1, y1, fundo, claro, escuro):
+    """a borda com relevo do painel (claro em cima/esquerda, escuro embaixo/direita), desenhada num canvas"""
+    cv.create_rectangle(x0, y0, x1, y1, fill=fundo, outline="")
+    cv.create_rectangle(x0, y0, x1, y0 + 3, fill=claro, outline=""); cv.create_rectangle(x0, y0, x0 + 3, y1, fill=claro, outline="")
+    cv.create_rectangle(x0, y1 - 3, x1, y1, fill=escuro, outline=""); cv.create_rectangle(x1 - 3, y0, x1, y1, fill=escuro, outline="")
 
 
 def olho_cinza_pil(arq, k):
@@ -1855,6 +1888,7 @@ class Tela:
         self.painel = None
         self.ang = 0.0; self.quem = None; self.desde = None; self.aviso = None; self.pisca = False; self.mudo = False; self.ult_estado = 0
         self.pausado = False
+        self.barra = False; self.ped_sel = None; self.zonas = []      # 04/11: a barra dos pedaços (só pausado) e onde cada clique cai
         self.arr = None
         self.cv.bind("<ButtonPress-1>", self._apertou); self.cv.bind("<B1-Motion>", self._arrastou)
         self.cv.bind("<ButtonRelease-1>", self._soltou); self.cv.bind("<Button-3>", self._menu)
@@ -1978,10 +2012,37 @@ class Tela:
     def _soltou(self, e):
         if self.arr and self.arr[4]:
             c = cfg(); c.pop("x", None); c.pop("y", None)
-            c["olho_x"], c["olho_y"] = self.root.winfo_x() + W - R - int(4 * ESC), self.root.winfo_y() + H // 2; salvar_cfg(c)
+            c["olho_x"] = self.root.winfo_x() + W - R - int(4 * ESC)
+            c["olho_y"] = self.root.winfo_y() + (BARRA_H if self.barra else 0) + H // 2; salvar_cfg(c)
         elif self.arr:
-            self._acao(False)
+            zona = next((z for x0, y0, x1, y1, z in self.zonas if x0 <= e.x <= x1 and y0 <= e.y <= y1), None)
+            if zona is None:
+                self._acao(False)            # o olho e o tempo: começa/conclui, como sempre
+            elif zona == "pausa":
+                self._pausa()
+            elif zona == "apagar":
+                g = self.k.pc
+                if g is not None and self.ped_sel is not None:
+                    g.alternar_pedaco(self.ped_sel)
+            elif zona != "barra":            # um pedaço: seleciona / tira a seleção (o que está gravando não se apaga)
+                self.ped_sel = None if self.ped_sel == zona else zona
         self.arr = None
+
+    def _ajustar_barra(self):
+        """pausado no PC = a janela cresce PRA CIMA com a barra dos pedaços (o olho fica onde ele deixou); continuou = some"""
+        quer = bool(self.pausado and self.quem == "pc" and self.k.pc is not None)
+        if quer == self.barra:
+            return
+        self.barra = quer
+        if quer:          # já vem selecionado o pedaço que acabou de gravar: pausou → APAGAR N é um clique
+            ps = [p for p in self.k.pc.pedacos if p["dur"] is not None]
+            self.ped_sel = ps[-1]["n"] if ps else None
+        else:
+            self.ped_sel = None
+        x, y = self.root.winfo_x(), self.root.winfo_y()
+        alt = H + (BARRA_H if quer else 0)
+        self.root.geometry("%dx%d+%d+%d" % (W, alt, x, y - BARRA_H if quer else y + BARRA_H))
+        self.cv.configure(height=alt)
 
     def abrir_painel(self):
         if self.painel and self.painel.vivo():
@@ -2022,6 +2083,7 @@ class Tela:
             self.ult_estado = agora
             threading.Thread(target=self._ler_estado, daemon=True).start()
         self._animar()
+        self._ajustar_barra()
         if self.visivel: self._desenhar()
         if self.visivel and agora - getattr(self, "_ult_topo", 0) > 2.0:
             # 22/10 (Kakashi PC 14:40 [12:15] "isso aqui era pra ficar em cima de tudo, né, ó, sumiu"): o "-topmost" do tk se perde
@@ -2053,9 +2115,47 @@ class Tela:
         self.mudo = bool(q) and mudo > mudo_aviso_s()
 
     def _desenhar(self):
-        cv = self.cv; cv.delete("all")
-        cx, cy = W - R - int(4 * ESC), H // 2
+        cv = self.cv; cv.delete("all"); self.zonas = []
+        cx, cy = W - R - int(4 * ESC), H // 2 + (BARRA_H if self.barra else 0)
         grav = bool(self.quem)
+        x0 = 4
+        if grav and self.quem == "pc":       # 04/11: PAUSAR (duas barras) / CONTINUAR (triângulo), sem abrir a janelinha
+            b0, b1 = (4, cy - 13), (4 + BT_W, cy + 13)
+            if self.pausado:
+                botao_8bits(cv, b0[0], b0[1], b1[0], b1[1], "#d6001c", "#ff6a6a", "#5e000c")
+                mx, my = (b0[0] + b1[0]) // 2 + 1, cy
+                for i in range(5):           # triângulo em degraus (8 bits)
+                    cv.create_rectangle(mx - 5 + 2 * i, my - 7 + i * 1.5, mx - 3 + 2 * i, my + 7 - i * 1.5, fill="#FFFFFF", outline="")
+            else:
+                botao_8bits(cv, b0[0], b0[1], b1[0], b1[1], "#2a2a33", "#4a4a56", "#0a0a0d")
+                mx = (b0[0] + b1[0]) // 2
+                cv.create_rectangle(mx - 6, cy - 7, mx - 2, cy + 7, fill="#FFD60A", outline="")
+                cv.create_rectangle(mx + 2, cy - 7, mx + 6, cy + 7, fill="#FFD60A", outline="")
+            self.zonas.append((b0[0], b0[1], b1[0], b1[1], "pausa"))
+            x0 = 4 + BT_W + 4
+        if self.barra:                       # só PAUSADO: os pedaços + APAGAR N / VOLTAR N, em cima de tudo
+            g = self.k.pc
+            ps = list(g.pedacos) if g is not None else []
+            if self.ped_sel is not None and not any(p["n"] == self.ped_sel for p in ps):
+                self.ped_sel = None
+            ax0 = W - 4 - APAGAR_W; tw = ax0 - 6 - 4
+            for bx0, bx1, p in desenhar_trilho(cv, 4, 4, tw, 26, ps, self.ped_sel):
+                if p["dur"] is not None:
+                    self.zonas.append((bx0, 4, bx1, 30, p["n"]))
+            self.zonas.append((4, 4, 4 + tw, 30, "barra"))
+            sel = next((p for p in ps if p["n"] == self.ped_sel), None)
+            if sel is None:
+                botao_8bits(cv, ax0, 4, W - 4, 30, "#1a1a20", "#24242b", "#0a0a0d")
+                cv.create_image((ax0 + W - 4) // 2, 17, image=self._pixel("APAGAR", "apagado"))
+                self.zonas.append((ax0, 4, W - 4, 30, "barra"))
+            else:
+                if sel["apagado"]:
+                    botao_8bits(cv, ax0, 4, W - 4, 30, "#15151a", "#34343e", "#050507")
+                else:
+                    botao_8bits(cv, ax0, 4, W - 4, 30, "#2a0006", "#6a0a16", "#0a0002")
+                cv.create_image((ax0 + W - 4) // 2, 17, image=self._pixel(("VOLTAR %d" if sel["apagado"] else "APAGAR %d") % sel["n"],
+                                                                         "branco" if sel["apagado"] else "vermelho"))
+                self.zonas.append((ax0, 4, W - 4, 30, "apagar"))
         amarelo = self.pisca and int(time.time() * 2) % 2 == 0
         if amarelo:     # 10 min sem voz: anel amarelo piscando em volta do olho
             cv.create_oval(cx - R - 4, cy - R - 4, cx + R + 4, cy + R + 4, outline="#FFE600", width=3)
@@ -2070,8 +2170,8 @@ class Tela:
                 txt = "PC PAUSA %d:%02d" % (s // 60, s % 60)
             x1 = cx - R - 8
             cor_txt = ("vermelho" if int(time.time() * 2) % 2 == 0 else "cinza") if mudo else ("amarelo" if amarelo else "branco")
-            cv.create_rectangle(4, cy - 13, x1, cy + 13, fill="#FFE600" if (amarelo and not mudo) else "#0B0B0D", outline="")
-            cv.create_image((4 + x1) // 2, cy, image=self._pixel(txt.upper(), cor_txt))
+            cv.create_rectangle(x0, cy - 13, x1, cy + 13, fill="#FFE600" if (amarelo and not mudo) else "#0B0B0D", outline="")
+            cv.create_image((x0 + x1) // 2, cy, image=self._pixel(txt.upper(), cor_txt))
         elif self.aviso:
             cv.create_image(cx - R - 8, cy, image=self._pixel("ATALHO OCUPADO", "amarelo"), anchor="e")
 
@@ -2259,23 +2359,11 @@ class Painel:
             g.alternar_pedaco(self.ped_sel); self.ult_trilho = 0
 
     def _desenhar_trilho(self):
-        cv = self.trilho; cv.delete("all"); self._blocos = []
+        cv = self.trilho; cv.delete("all")
         ps = self._pedacos(); w, h = int(cv["width"]), int(cv["height"])
-        cv.create_rectangle(0, 0, w, h, fill="#121217", outline="")
+        self._blocos = desenhar_trilho(cv, 0, 0, w, h, ps, self.ped_sel)
         if not ps:
             self._pintar(self.bt_ped, "off", "APAGAR"); return
-        agora = time.time()
-        durs = [p["dur"] if p["dur"] is not None else max(0.5, agora - p["epoch"]) for p in ps]
-        tot = sum(durs) or 1; x = 2; livre = w - 4 - 3 * (len(ps) - 1)
-        for p, d in zip(ps, durs):
-            bw = max(6, int(livre * d / tot)); x1 = min(w - 2, x + bw)
-            if p["apagado"]:
-                cv.create_rectangle(x, 4, x1, h - 4, fill="#1a1a20", outline="#3a3a44")
-            else:
-                cv.create_rectangle(x, 4, x1, h - 4, fill="#ff1e2e" if p["dur"] is None else "#d6001c", outline="")
-            if self.ped_sel == p["n"]:
-                cv.create_rectangle(x - 1, 2, x1 + 1, h - 2, outline="#FFE600", width=2)
-            self._blocos.append((x, x1, p)); x = x1 + 3
         sel = next((p for p in ps if p["n"] == self.ped_sel), None)
         if sel is None:
             self.ped_sel = None; self._pintar(self.bt_ped, "off", "APAGAR")
