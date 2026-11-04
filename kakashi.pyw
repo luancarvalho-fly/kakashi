@@ -1634,7 +1634,12 @@ class Kakashi:
         return self.voz_recente(arq), self.mudo
 
     def voz_recente(self, arq):
-        """10 min sem voz no microfone → aviso"""
+        """10 min sem voz no microfone → aviso.
+        Voz = os últimos 5 s bem acima do mais baixo que ESTA gravação já esteve (o piso): 3× o piso, entre 15 e 60 de RMS
+        (~ -67 a -55 dBFS). 04/11: era um número fixo, 400 (~ -38 dBFS), da época (19/10) em que o microfone sem fio dava ~2000;
+        em 04/11 a mesma voz dava 20–270 e o anel amarelo piscou com ele falando (Kakashi 16:15 [10:15] «por que tá piscando isso
+        aqui?»). Conferido nas 46 gravações de 01–04/11: o maior trecho «sem voz» caiu de 612 s pra 137 s; silêncio digital e
+        ruído de sala (30–45) por 12 min ainda avisam. O microfone sem fio corta pra zero nas pausas, então o piso dele é ~0."""
         if not arq or not os.path.isfile(arq):
             return True
         try:
@@ -1644,7 +1649,10 @@ class Kakashi:
             a = array.array("h"); a.frombytes(b[: len(b) // 2 * 2])
             if a:
                 rms = (sum(x * x for x in a[::8]) / len(a[::8])) ** 0.5
-                if rms > 400:            # ~ -38 dBFS: fala
+                if getattr(self, "voz_piso_arq", None) != arq:
+                    self.voz_piso_arq, self.voz_piso = arq, rms
+                self.voz_piso = min(self.voz_piso, rms)
+                if rms > max(15.0, min(self.voz_piso * 3, 60.0)):
                     self.ultima_voz = time.time()
         except Exception:
             return True
