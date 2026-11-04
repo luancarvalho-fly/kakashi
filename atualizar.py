@@ -85,13 +85,33 @@ def vigia(flag_painel, cfg, salvar_cfg, log):
 
 def abrir_instalador_em_janela():
     """a janelinha chama isto: o atualizador roda numa janela preta à parte (ele fecha e reabre o Kakashi no fim)."""
+    if sys.platform == "darwin":       # 04/11 (Mac do Gu): sem janela de console no Mac — roda escondido e escreve em atualizar.log
+        with open(os.path.join(AQUI, "atualizar.log"), "a", encoding="utf-8") as log:
+            subprocess.Popen([sys.executable, os.path.join(AQUI, "atualizar.py"), "--instalar"], cwd=AQUI,
+                             stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+        return
     py = os.path.join(os.path.dirname(sys.executable), "python.exe")
     subprocess.Popen([py if os.path.isfile(py) else sys.executable, os.path.join(AQUI, "atualizar.py"), "--instalar"], cwd=AQUI,
                      creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0))
 
 
+def instalar_mac():
+    """04/11 (Mac do Gu): no Mac o Kakashi é um CLONE do repositório (o instalar.py é só do Windows) — atualizar = git pull.
+    Os arquivos do Gu (config.json, premiere/config.json, lidas.json) ficam fora do git (skip-worktree), então o pull não mexe neles."""
+    if not os.path.isdir(os.path.join(AQUI, ".git")):
+        print("No Mac o Kakashi atualiza pelo git, e esta pasta não é um clone do repositório. Siga o MAC.md (instalação à mão).")
+        return 1
+    r = subprocess.run(["git", "-C", AQUI, "pull", "--ff-only"], capture_output=True, text=True)
+    print((r.stdout + r.stderr).strip())
+    if r.returncode == 0:
+        print("Atualizado (%s). Feche e abra o Kakashi pra valer o código novo." % versao_local())
+    return r.returncode
+
+
 def instalar(teste=False):
     r = checar()
+    if sys.platform == "darwin" and r["estado"] == "nova":
+        return instalar_mac()
     if r["estado"] != "nova":
         print("Nada pra atualizar:", r.get("msg") or "você já está na versão %s." % r["local"])
         return 0
@@ -131,7 +151,7 @@ if __name__ == "__main__":
                "erro": "ERRO: %s" % r.get("msg")}[r["estado"]])
     elif "--instalar" in sys.argv:
         cod = instalar(teste="--teste" in sys.argv)
-        if "--teste" not in sys.argv:
+        if "--teste" not in sys.argv and sys.stdin and sys.stdin.isatty():      # 04/11: no Mac roda sem janela (sem teclado)
             input("\nPode fechar esta janela (Enter).")
         sys.exit(cod)
     else:
