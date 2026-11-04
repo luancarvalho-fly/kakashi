@@ -84,7 +84,15 @@
     return Object.keys(achou).length ? achou : null;
   }
 
-  window.addEventListener("kakashi:fonte", ev => {
+  // a extensão se recarrega sozinha e entra de novo nas guias abertas (fundo.js): o ouvinte de antes sai, fica um só
+  const eu = Math.random().toString(36).slice(2);
+  window.dispatchEvent(new CustomEvent("kakashi:fonte-novo", {detail: eu}));
+  const sair = ev => {
+    if (ev.detail === eu) return;
+    window.removeEventListener("kakashi:fonte", ouvinte); window.removeEventListener("kakashi:fonte-novo", sair);
+  };
+  window.addEventListener("kakashi:fonte-novo", sair);
+  const ouvinte = ev => {
     let r = null;
     try {
       const p = JSON.parse(ev.detail);
@@ -97,5 +105,6 @@
       }
     } catch (e) {}
     window.dispatchEvent(new CustomEvent("kakashi:fonte-resposta", {detail: JSON.stringify(r)}));
-  });
+  };
+  window.addEventListener("kakashi:fonte", ouvinte);
 })();

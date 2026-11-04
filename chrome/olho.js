@@ -99,16 +99,30 @@
     } catch (e) { /* extensão recarregada: esta página fica sem olho até recarregar */ }
   }
 
-  addEventListener("mousemove", ev => {
+  // a extensão se recarrega sozinha e entra de novo nas guias abertas (fundo.js): pode sobrar o olho de antes (no mesmo mundo ou
+  // num mundo órfão da versão velha). O novo avisa por um evento da janela, que chega em todos os mundos, e os de antes se desligam.
+  const eu = Math.random().toString(36).slice(2);
+  let ligado = true;
+  window.dispatchEvent(new CustomEvent("kakashi:olho-novo", {detail: eu}));
+  const sair = ev => {
+    if (ev.detail === eu) return;
+    ligado = false; clearTimeout(relogio);
+    removeEventListener("mousemove", mexeu, {capture: true}); removeEventListener("pointerdown", clicou, {capture: true});
+    removeEventListener("kakashi:olho-novo", sair);
+  };
+  addEventListener("kakashi:olho-novo", sair);
+  const mexeu = ev => {
+    if (!ligado) return;
     andou += Math.abs(ev.clientX - x) + Math.abs(ev.clientY - y);
     x = ev.clientX; y = ev.clientY; sx = ev.screenX; sy = ev.screenY;
     clearTimeout(relogio);
     relogio = setTimeout(() => {
       if (andou > ANDAR) { andou = 0; relatar("parou", x, y, sx, sy); }
     }, PAUSA);
-  }, {capture: true, passive: true});
-
-  addEventListener("pointerdown", ev => {
-    relatar(ev.button === 2 ? "clique_direito" : "clique", ev.clientX, ev.clientY, ev.screenX, ev.screenY);
-  }, {capture: true, passive: true});
+  };
+  const clicou = ev => {
+    if (ligado) relatar(ev.button === 2 ? "clique_direito" : "clique", ev.clientX, ev.clientY, ev.screenX, ev.screenY);
+  };
+  addEventListener("mousemove", mexeu, {capture: true, passive: true});
+  addEventListener("pointerdown", clicou, {capture: true, passive: true});
 })();

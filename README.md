@@ -38,7 +38,8 @@ Na mão (Windows): baixe o zip (botão verde **Code → Download ZIP**), extraia
 
 ## Atualização
 O Kakashi confere este repositório sozinho a cada 12 h; achou versão nova, a janelinha mostra **ATUALIZAR** (gravações, config e atalho
-ficam). Cada versão é uma etiqueta `vAAAA.MM.DD`. O que mudou: aba **Commits**.
+ficam). A extensão do Chrome percebe sozinha que os arquivos dela mudaram (confere a cada minuto), se recarrega e entra nas guias
+já abertas: não precisa clicar em nada no Chrome. Cada versão é uma etiqueta `vAAAA.MM.DD`. O que mudou: aba **Commits**.
 
 ## O que já foi testado
 O gravador é o mesmo que o Luan usa todo dia. Deste repositório (03/11/2026, no PC dele): o instalador numa pasta de teste, a leitura

@@ -34,7 +34,8 @@ e os pedaços (PAUSAR / CONTINUAR, APAGAR N) chegaram depois do porte: são a me
    da leitura são as mesmas.
 9. **A extensão do Chrome** (recomendado; a pessoa clica): `chrome://extensions` → **Modo do desenvolvedor** → **Carregar sem
    compactação** → a pasta `chrome/` do clone. Ela diz ao Kakashi o elemento da página debaixo do mouse pelo código (HTML, seletor,
-   link, imagem e, em app local, o arquivo:linha) e só fala com o 127.0.0.1:7816 enquanto grava. Depois de um `git pull`: botão ↻ dela.
+   link, imagem e, em app local, o arquivo:linha) e só fala com o 127.0.0.1:7816 enquanto grava. Depois de um `git pull` ela se
+   recarrega sozinha (confere os próprios arquivos a cada minuto) e entra nas guias já abertas.
 10. **Prova:** grave 10 s falando e mostrando uma página, conclua, e no Claude Code `/kakashi`: o `LEITURA.md` tem que trazer a fala, a
    janela, o print do «aqui», o link e (com a extensão) as linhas «Chrome (parou/clique)».
 

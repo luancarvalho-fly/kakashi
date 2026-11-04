@@ -34,7 +34,9 @@
    «um título chamado X». Passo a passo pra pessoa: no Chrome, abrir `chrome://extensions` → ligar **Modo do desenvolvedor** (canto
    de cima, à direita) → **Carregar sem compactação** → escolher a pasta `%LOCALAPPDATA%\Programs\Kakashi-Fly\chrome`. Pronto: o
    Sharingan aparece na lista. Ela só manda alguma coisa enquanto o Kakashi grava, e só pro próprio PC (127.0.0.1); o que a pessoa
-   digita em campo nunca sai. Depois de uma atualização do Kakashi: botão de recarregar (↻) da extensão nessa mesma página.
+   digita em campo nunca sai. Depois de uma atualização do Kakashi a extensão
+   se recarrega sozinha (confere os próprios arquivos a cada minuto) e entra nas guias já abertas, sem F5. Se o Claude consegue
+   operar o Chrome da pessoa (UI Automation do Windows), ele mesmo faz os cliques acima; senão, passa os 3 cliques pra ela.
 8. Se o Windows avisar "O Windows protegeu o computador" num atalho: "Mais informações" → "Executar assim mesmo".
 
 Atualizar: sozinho (a janelinha mostra ATUALIZAR quando sai versão nova), ou rodar o `instalar.py` da versão nova (as gravações, o
