@@ -94,6 +94,7 @@ const U = "[0-9a-f-]{36}";
 const ROTAS = [
   ["GET", new RegExp(`^/v1/auth/session/verify$`)],
   ["GET", new RegExp(`^/v1/models$`)],
+  ["GET", new RegExp(`^/v1/workspaces/019d4ee4-642d-742d-84d9-28e0558f18ec/ips/${FLY_IP}/spending-limits$`)],
   ["GET", new RegExp(`^/v1/ips/${FLY_IP}/productions/${U}$`)],
   ["GET", new RegExp(`^/v1/ips/${FLY_IP}/canvas/${U}/predictions$`)],
   ["POST", new RegExp(`^/v1/ips/${FLY_IP}/productions/${U}/(scenes|shots)$`)],
