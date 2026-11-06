@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Kakashi — olho no Chrome",
-  "version": "1.1.0",
-  "description": "Enquanto o Kakashi grava, diz qual elemento da página está debaixo do mouse (HTML, seletor e, em app local, o arquivo do código-fonte).",
+  "version": "1.2.0",
+  "description": "Enquanto o Kakashi grava, diz qual elemento da página está debaixo do mouse (HTML, seletor e, em app local, o arquivo do código-fonte). + ponte Fly X-tudo → Fly Studio (gera no Fly com o login deste Chrome, só a partir do site do Fly X-tudo).",
   "icons": {
     "16": "icone16.png",
     "48": "icone48.png",
@@ -37,6 +37,18 @@
       ],
       "all_frames": true,
       "match_about_blank": true,
+      "run_at": "document_start"
+    },
+    {
+      "matches": [
+        "https://flyxtudo-fly-media.vercel.app/*",
+        "http://127.0.0.1:3007/*",
+        "http://localhost:3007/*"
+      ],
+      "js": [
+        "ponte.js"
+      ],
+      "all_frames": true,
       "run_at": "document_start"
     }
   ],
