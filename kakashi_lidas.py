@@ -8,6 +8,8 @@ _transcricao\\, ou o nome da pasta no lidas.json da skill /kakashi.
   python kakashi_lidas.py novas                  → as correções AINDA NÃO LIDAS (PC, Premiere e AppPessoal), da mais nova pra mais velha
   python kakashi_lidas.py marcar <pasta> --chat <id do chat> [--nota "o que virou"]   → marca como lida (LIDA.json + lidas.json)
   python kakashi_lidas.py quem <pasta>           → quem leu essa sessão
+  python kakashi_lidas.py faltando               → sessões de hoje sem LEITURA-CLAUDE.md ou SABOTADOR.md (a análise que faltou)
+TRAVA 06/11: marcar com nota final só passa com LEITURA-CLAUDE.md + SABOTADOR.md na pasta; «--nota lendo» reserva sem exigir.
 """
 import datetime, json, os, sys
 
@@ -72,7 +74,22 @@ def novas():
                                         ("%.0f s" % dur) if isinstance(dur, (int, float)) else "?", (" · CONTINUA NO " + cont.upper()) if cont else ""))
 
 
+def tem(p, nome):
+    return any(os.path.isfile(c) for c in (os.path.join(p, nome), os.path.join(p, "_transcricao", nome)))
+
+
 def marcar(p, chat, nota):
+    # TRAVA (06/11, ele: «você tá lendo as correções do Kakashi sem analisar elas antes... por isso que tá passando coisa batida...
+    # Você não pode fazer isso»): nas 11 correções de 06/11 eu fui da transcrição direto pro código. Agora só dá pra marcar como LIDA
+    # (nota final) com a LEITURA-CLAUDE.md (passo 4 da skill) e a SABOTADOR.md (passo 4c: o que o sabotador achou e o que eu corrigi)
+    # na pasta. «lendo» (reservar a sessão pra outro chat não pegar) continua livre.
+    if nota.strip().lower() != "lendo":
+        falta = [n for n in ("LEITURA-CLAUDE.md", "SABOTADOR.md") if not tem(p, n)]
+        if falta:
+            print("NÃO MARCADA: falta " + " e ".join(falta) + " em " + p)
+            print("  Passo 4: escrever a LEITURA-CLAUDE.md (pedidos com fala literal [mm:ss], erros meus, o que fica, dúvidas).")
+            print("  Passo 4c: rodar o sabotador (agente separado) e gravar SABOTADOR.md com os achados e o que mudou na leitura.")
+            sys.exit(1)
     d = {"lida_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "chat": chat, "nota": nota}
     json.dump(d, open(os.path.join(p, "LIDA.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     try:
@@ -101,6 +118,17 @@ def main():
         chat = a[a.index("--chat") + 1] if "--chat" in a else "?"
         nota = a[a.index("--nota") + 1] if "--nota" in a else ""
         marcar(a[1], chat, nota)
+    elif a[0] == "faltando":
+        hoje = datetime.date.today().isoformat()
+        for tipo, base in BASES:
+            if not os.path.isdir(base):
+                continue
+            for n in sorted(os.listdir(base)):
+                p = os.path.join(base, n)
+                if os.path.isdir(p) and n.startswith(hoje) and not n.startswith("_"):
+                    f = [x for x in ("LEITURA-CLAUDE.md", "SABOTADOR.md") if not tem(p, x)]
+                    if f:
+                        print("%-8s %s · falta %s" % (tipo, n, ", ".join(f)))
     elif a[0] == "quem":
         print(ja_lida(a[1], lidas_skill()) or "ninguém leu ainda")
 

@@ -14,8 +14,10 @@ Pasta do Kakashi: `%LOCALAPPDATA%\Programs\Kakashi-Fly\` (abaixo, "a pasta"). Py
    versão nova do Kakashi: botão ATUALIZAR na janelinha (atalho KAKASHI na área de trabalho)". Não atualize no meio da leitura.
 1. `python kakashi_lidas.py novas` (na pasta) → só existe pra ler o que ele listar, da mais nova pra mais velha. Sessão com `LIDA.json`
    na pasta, ou `LEITURA-CLAUDE.md`, = OUTRO chat já leu: NÃO ler de novo, NÃO refazer o pedido dela.
-2. Ao começar a trabalhar numa sessão: `python kakashi_lidas.py marcar "<pasta da sessão>" --chat <id deste chat> --nota "<o que virou>"`.
-   Marcar LOGO, antes de fazer os pedidos: outro chat aberto pode estar olhando.
+2. Ao começar a trabalhar numa sessão: `python kakashi_lidas.py marcar "<pasta da sessão>" --chat <id deste chat> --nota lendo`.
+   Marcar LOGO, antes de fazer os pedidos: outro chat aberto pode estar olhando. No fim, marcar de novo com `--nota "<o que virou>"`:
+   **essa marca final só passa com `LEITURA-CLAUDE.md` e `SABOTADOR.md` na pasta da sessão** (passo 5). `python kakashi_lidas.py
+   faltando` lista as gravações do dia que ficaram sem essa análise.
 
 ## 1. Achar a gravação (a MAIS NOVA que a lista deu)
 - **PC** (qualquer janela: Chrome, ARDI, Fly Studio...): `sessoes\<AAAA-MM-DD_HHMMSS>_pc\`.
@@ -80,7 +82,15 @@ minha explicação sobre isso».)
   dela (casos) · Ordens de "não fazer". Sempre a fala LITERAL curta entre aspas + `[mm:ss]`.
 - Cada pedido falado vira uma linha de checklist (fala + minuto + onde foi feito). Pedido que vale pra mais de um lugar ("a roxa tem que
   ser verde") vale em TODOS os lugares. Gravação longa ou várias gravações do mesmo projeto: checklist de TODAS, não só da última.
-- **SABOTADOR antes de responder** (gravação longa ou cheia de pedido): com o `LEITURA-CLAUDE.md` escrito, um agente SEPARADO lê a fala
+- **NUNCA DA TRANSCRIÇÃO DIRETO PRO CÓDIGO.** Ordem fixa, em TODA gravação (até as curtas, até em sequência, até com a pessoa com pressa):
+  `LEITURA.md` inteira + prints → cruzar com a gravação antiga que ela citar → `LEITURA-CLAUDE.md` → sabotador → `SABOTADOR.md` (os
+  achados e o que mudou na leitura) → só então mexer. (Erro de verdade: 11 gravações seguidas num dia lidas sem leitura escrita nem
+  sabotador; a pessoa achou os furos depois. Fala do Luan, 06/11: «você tá lendo as correções do Kakashi sem analisar elas antes,
+  cara? Será que é por isso que tá passando coisa batida... Você não pode fazer isso».)
+- **Pergunta sobre a gravação vai com o trecho exato**: o arquivo do momento (recorte do áudio e do vídeo, ou o print) junto da
+  pergunta, nunca só o minuto. (Fala do Luan, 06/11: «O certo é você me mandar o momento exato da gravação... Tu acha que eu tenho
+  memória do homem de ferro?»)
+- **SABOTADOR antes de responder** (SEMPRE): com o `LEITURA-CLAUDE.md` escrito, um agente SEPARADO lê a fala
   inteira, o `LEITURA.md`, a sua leitura e as gravações anteriores dos mesmos trechos, e devolve FALTOU · ERRADO · DESCARTADO-PELA-PESSOA ·
   DÚVIDA, cada um com a fala literal e o [mm:ss]; zero achado vale. Confira cada achado na fala original e corrija a leitura ANTES de
   responder. Não é pra "derrubar" pedido: é pra achar o que passou batido. (Fala do Luan, 27/10: «você já colocou o sabotador aqui,
