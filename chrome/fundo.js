@@ -101,43 +101,68 @@ const ROTAS = [
   ["POST", new RegExp(`^/v1/ips/${FLY_IP}/canvas/${U}/predictions/(videos|images)$`)],
   ["POST", new RegExp(`^/v1/ips/${FLY_IP}/media-cookies$`)],
 ];
+/* 07/11/2026 (Kakashi 00:11: «Não consegui achar/criar o shot no Cinema do Fly: Unauthorized»): chamada de dentro do service worker sai
+   «de fora» do Fly e o Chrome não manda o cookie de login (SameSite) → 401. Agora toda chamada ao Fly roda DENTRO de uma aba do
+   studio.flymedia.ai (a que já estiver aberta; se não tiver, abre uma em segundo plano), como o próprio site faz. */
+async function abaDoFly() {
+  const abas = await chrome.tabs.query({ url: "https://studio.flymedia.ai/*" });
+  const pronta = abas.find((t) => t.status === "complete") || abas[0];
+  if (pronta) return pronta.id;
+  const nova = await chrome.tabs.create({ url: "https://studio.flymedia.ai/", active: false });
+  await new Promise((ok) => { const f = (id, info) => { if (id === nova.id && info.status === "complete") { chrome.tabs.onUpdated.removeListener(f); ok(); } }; chrome.tabs.onUpdated.addListener(f); setTimeout(ok, 20000); });
+  return nova.id;
+}
+async function noFly(func, args) {
+  const tabId = await abaDoFly();
+  const [r] = await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", func, args });
+  return r && r.result;
+}
 async function flyApi(metodo, caminho, corpo) {
   if (!ROTAS.some(([m, re]) => m === metodo && re.test(caminho))) return { ok: false, status: 0, erro: "rota não liberada: " + metodo + " " + caminho };
-  const vai = () => fetch(FLY_API + caminho, { method: metodo, credentials: "include", headers: corpo ? { "Content-Type": "application/json" } : {}, body: corpo ? JSON.stringify(corpo) : undefined });
-  let r = await vai();
-  if (r.status === 401) { await fetch(FLY_API + "/v1/auth/session/refresh", { method: "POST", credentials: "include" }).catch(() => {}); r = await vai(); }
-  const txt = await r.text();
-  let dados = null; try { dados = txt ? JSON.parse(txt) : null; } catch (e) { dados = txt.slice(0, 500); }
-  return r.ok ? { ok: true, status: r.status, dados } : { ok: false, status: r.status, erro: (dados && (dados.message || dados.error)) || ("HTTP " + r.status), dados };
+  return noFly(async (API, metodo, caminho, corpo) => {
+    const vai = () => fetch(API + caminho, { method: metodo, credentials: "include", headers: corpo ? { "Content-Type": "application/json" } : {}, body: corpo ? JSON.stringify(corpo) : undefined });
+    let r = await vai();
+    if (r.status === 401) { await fetch(API + "/v1/auth/session/refresh", { method: "POST", credentials: "include" }).catch(() => {}); r = await vai(); }
+    const txt = await r.text();
+    let dados = null; try { dados = txt ? JSON.parse(txt) : null; } catch (e) { dados = txt.slice(0, 500); }
+    return r.ok ? { ok: true, status: r.status, dados } : { ok: false, status: r.status, erro: (dados && (dados.message || dados.error)) || ("HTTP " + r.status), dados };
+  }, [FLY_API, metodo, caminho, corpo || null]);
 }
+const paraDataUrl = (b) => new Promise((ok, falha) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => falha(fr.error); fr.readAsDataURL(b); });
 // imagem de referência (link do Fly X-tudo ou data: da página) → biblioteca do Fly → {type, uid}; guardada por link pra não subir 2×
 async function subirRef(url, nome) {
   const chave = "flyref:" + url.slice(0, 300);
   if (!url.startsWith("data:")) { const g = await chrome.storage.local.get(chave); if (g[chave]) return { ok: true, dados: g[chave], cache: true }; }
   const blob = await (await fetch(url)).blob();
-  const tipo = blob.type || "image/jpeg";
-  const ext = (tipo.split("/")[1] || "jpg").replace("jpeg", "jpg").replace(/[^a-z0-9]/g, "");
-  const pre = await fetch(FLY_API + "/v1/uploads/presigned-url", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mimeType: tipo, fileSize: blob.size, extension: ext }) });
-  if (!pre.ok) return { ok: false, status: pre.status, erro: "presigned " + pre.status };
-  const { uploadUrl, tempKey } = await pre.json();
-  const put = await fetch(uploadUrl, { method: "PUT", body: blob, headers: { "Content-Type": tipo } });
-  if (!put.ok) return { ok: false, status: put.status, erro: "upload " + put.status };
-  const conf = await fetch(FLY_API + `/v1/ips/${FLY_IP}/libraries/assets/confirm`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tempKey, filename: (nome || "ref") + "." + ext }) });
-  if (!conf.ok) return { ok: false, status: conf.status, erro: "confirm " + conf.status };
-  const o = await conf.json();
-  const ref = { type: o.type, uid: o.uid, previewUrl: o.previewUrl || null };
-  if (!url.startsWith("data:")) await chrome.storage.local.set({ [chave]: ref });
-  return { ok: true, dados: ref };
+  const dataUrl = await paraDataUrl(blob);
+  const res = await noFly(async (API, IP, dataUrl, nome) => {
+    const blob = await (await fetch(dataUrl)).blob();
+    const tipo = blob.type || "image/jpeg";
+    const ext = (tipo.split("/")[1] || "jpg").replace("jpeg", "jpg").replace(/[^a-z0-9]/g, "");
+    const pre = await fetch(API + "/v1/uploads/presigned-url", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ mimeType: tipo, fileSize: blob.size, extension: ext }) });
+    if (!pre.ok) return { ok: false, status: pre.status, erro: "presigned " + pre.status };
+    const { uploadUrl, tempKey } = await pre.json();
+    const put = await fetch(uploadUrl, { method: "PUT", body: blob, headers: { "Content-Type": tipo } });
+    if (!put.ok) return { ok: false, status: put.status, erro: "upload " + put.status };
+    const conf = await fetch(API + `/v1/ips/${IP}/libraries/assets/confirm`, { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tempKey, filename: (nome || "ref") + "." + ext }) });
+    if (!conf.ok) return { ok: false, status: conf.status, erro: "confirm " + conf.status };
+    const o = await conf.json();
+    return { ok: true, dados: { type: o.type, uid: o.uid, previewUrl: o.previewUrl || null } };
+  }, [FLY_API, FLY_IP, dataUrl, nome || "ref"]);
+  if (res && res.ok && !url.startsWith("data:")) await chrome.storage.local.set({ [chave]: res.dados });
+  return res || { ok: false, erro: "a aba do Fly não respondeu" };
 }
 // a saída de uma geração (mídia do Fly, que só abre com o login) → data: pra página subir pro Fly X-tudo
 async function baixar(url) {
   if (!/^https:\/\/media\.studio\.flymedia\.ai\//.test(url)) return { ok: false, erro: "só mídia do Fly Studio" };
-  await fetch(FLY_API + `/v1/ips/${FLY_IP}/media-cookies`, { method: "POST", credentials: "include" }).catch(() => {});
-  const r = await fetch(url, { credentials: "include" });
-  if (!r.ok) return { ok: false, status: r.status, erro: "mídia " + r.status };
-  const b = await r.blob();
-  const dataUrl = await new Promise((ok, falha) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => falha(fr.error); fr.readAsDataURL(b); });
-  return { ok: true, dados: { dataUrl, tipo: b.type, tamanho: b.size } };
+  return (await noFly(async (API, IP, url) => {
+    await fetch(API + `/v1/ips/${IP}/media-cookies`, { method: "POST", credentials: "include" }).catch(() => {});
+    const r = await fetch(url, { credentials: "include" });
+    if (!r.ok) return { ok: false, status: r.status, erro: "mídia " + r.status };
+    const b = await r.blob();
+    const dataUrl = await new Promise((ok, falha) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => falha(fr.error); fr.readAsDataURL(b); });
+    return { ok: true, dados: { dataUrl, tipo: b.type, tamanho: b.size } };
+  }, [FLY_API, FLY_IP, url])) || { ok: false, erro: "a aba do Fly não respondeu" };
 }
 chrome.runtime.onMessage.addListener((msg, quem, responder) => {
   if (!msg || msg.tipo !== "fly-ponte") return;
