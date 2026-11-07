@@ -61,6 +61,9 @@ async function conferir() {
   }
 }
 
+// páginas do Fly X-tudo (as mesmas do manifest): depois de um reload a ponte.js velha morre junto com o contexto; ponho a nova
+// na hora, sem F5 (Kakashi 07/11 00:42: «tem que ser automático, eu entrar no Fly Studio e acabou e usar»)
+const PONTE_EM = /^(https:\/\/flyxtudo-fly-media\.vercel\.app|http:\/\/127\.0\.0\.1:3007|http:\/\/localhost:3007)\//;
 async function entrarNasGuias() {
   const abas = await chrome.tabs.query({});
   for (const a of abas) {
@@ -68,6 +71,7 @@ async function entrarNasGuias() {
     try {
       await chrome.scripting.executeScript({target: {tabId: a.id, allFrames: true}, files: ["fonte.js"], world: "MAIN"});
       await chrome.scripting.executeScript({target: {tabId: a.id, allFrames: true}, files: ["olho.js"]});
+      if (PONTE_EM.test(a.url)) await chrome.scripting.executeScript({target: {tabId: a.id, allFrames: true}, files: ["ponte.js"]});
     } catch (e) { /* guia que o Chrome não deixa (loja, página de erro) */ }
   }
 }

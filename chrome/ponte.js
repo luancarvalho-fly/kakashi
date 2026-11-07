@@ -4,9 +4,17 @@
 // repassa pro fundo da extensão, que fala com a API do Fly Studio com o login do Chrome, e devolve {fxPonte:"resposta", id, ...}.
 // Nenhuma outra página chega aqui (matches do manifest) e o fundo confere a origem de novo e só deixa as rotas de gerar/ler do IP Plexus.
 (function () {
-  const VERSAO = "1.0";
+  /* the extension reloads itself when its files change (fundo.js); the old copy of this script stays in the page with a dead context,
+     so it steps aside and the fresh one (put in by fundo.js) answers — otherwise the page got «Extension context invalidated» */
+  /* only the newest copy answers (its token on <html>): two live copies would send every request twice — a generation paid twice */
+  const EU = Math.random().toString(36).slice(2);
+  const raiz = () => document.documentElement;
+  if (raiz()) raiz().dataset.fxPonte = EU;
+  const vivo = () => { try { return !!(chrome.runtime && chrome.runtime.id) && (!raiz() || raiz().dataset.fxPonte === EU); } catch (e) { return false; } };
+  const VERSAO = (() => { try { return chrome.runtime.getManifest().version; } catch (e) { return "?"; } })();
   const ola = () => window.postMessage({ fxPonte: "ola", versao: VERSAO }, location.origin);
-  window.addEventListener("message", (e) => {
+  window.addEventListener("message", function ouvir(e) {
+    if (!vivo()) { window.removeEventListener("message", ouvir); return; }
     if (e.source !== window || e.origin !== location.origin) return;
     const d = e.data;
     if (!d || typeof d !== "object") return;

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Kakashi — olho no Chrome",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "description": "Enquanto o Kakashi grava, diz qual elemento da página está debaixo do mouse (HTML, seletor e, em app local, o arquivo do código-fonte). + ponte Fly X-tudo → Fly Studio (gera no Fly com o login deste Chrome, só a partir do site do Fly X-tudo).",
   "icons": {
     "16": "icone16.png",
