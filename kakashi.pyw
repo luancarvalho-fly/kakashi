@@ -2138,6 +2138,7 @@ class Tela:
         self._animar()
         self._ajustar_barra()
         if self.visivel: self._desenhar()
+        self._aviso_grande()
         if self.visivel and agora - getattr(self, "_ult_topo", 0) > 2.0:
             # 22/10 (Kakashi PC 14:40 [12:15] "isso aqui era pra ficar em cima de tudo, né, ó, sumiu"): o "-topmost" do tk se perde
             # depois de outra janela "sempre na frente" (ex.: o Lightshot) e o Chrome cobria o olho. Reafirma a cada 2 s, sem pegar foco.
@@ -2156,6 +2157,48 @@ class Tela:
                 except OSError: pass
                 self.abrir_painel()
         if self.painel: self.painel.tique()
+
+    def _aviso_grande(self):
+        """07/11 (Kakashi PC 17:51, ~50 s sem microfone sem ele perceber; no chat: «um aviso GRANDE piscando no meio da tela quando o
+        microfone/som falhar»): gravando e mudo (o mesmo «SEM SOM» do olho, 20 s em silêncio digital) → uma faixa vermelha grande no
+        meio da tela, piscando, que não pega clique (passa pro que está embaixo); some quando a voz volta ou a gravação para/pausa."""
+        quer = bool(self.quem) and self.mudo and not self.pausado
+        av = getattr(self, "_av", None)
+        if not quer:
+            if av is not None:
+                av.withdraw()
+            return
+        if av is None:
+            av = tk.Toplevel(self.root); av.overrideredirect(True); av.attributes("-topmost", True)
+            try:
+                av.attributes("-alpha", 0.9)
+            except Exception:
+                pass
+            sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+            w, h = int(sw * 0.62), int(sh * 0.16)
+            av.geometry("%dx%d+%d+%d" % (w, h, (sw - w) // 2, (sh - h) // 2))
+            av.configure(bg="#B00020")
+            self._av_txt = tk.Label(av, text="MICROFONE MUDO", font=("Segoe UI Black", max(28, int(h * 0.30)), "bold"), fg="#FFFFFF", bg="#B00020")
+            self._av_txt.pack(expand=True, fill="both")
+            self._av_sub = tk.Label(av, text="", font=("Segoe UI", max(12, int(h * 0.11)), "bold"), fg="#FFE600", bg="#B00020")
+            self._av_sub.pack(fill="x", pady=(0, int(h * 0.08)))
+            if not MAC:
+                try:   # não pega clique: WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_NOACTIVATE
+                    av.update_idletasks()
+                    hwnd = ctypes.windll.user32.GetParent(av.winfo_id()) or av.winfo_id()
+                    est = ctypes.windll.user32.GetWindowLongW(hwnd, -20)
+                    ctypes.windll.user32.SetWindowLongW(hwnd, -20, est | 0x00080000 | 0x00000020 | 0x08000000)
+                except Exception as e:
+                    log("aviso grande: não deixei passar o clique: %r" % e)
+            self._av = av
+            log("aviso grande: MICROFONE MUDO no meio da tela")
+        mudo_s = int(self.k.mudo or 0)
+        self._av_sub.config(text="o Kakashi não está ouvindo você há %d s · confira o microfone" % mudo_s)
+        aceso = int(time.time() * 2) % 2 == 0
+        cor = "#B00020" if aceso else "#3A0008"
+        for wdg in (av, self._av_txt, self._av_sub):
+            wdg.configure(bg=cor)
+        av.deiconify(); av.lift()
 
     def _ler_estado(self):
         q, d = self.k.estado()
