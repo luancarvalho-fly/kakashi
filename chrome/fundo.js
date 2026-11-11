@@ -7,7 +7,7 @@
 // impressão (SHA-256) dos arquivos como estão no disco; a cada minuto comparo de novo: mudou = chrome.runtime.reload(). Ao entrar,
 // ponho o olho também nas guias que já estavam abertas (sem precisar de F5). A impressão fica no chrome.storage.local («carregada»).
 const KAKASHI = "http://127.0.0.1:7816";
-const ARQUIVOS = ["manifest.json", "fundo.js", "olho.js", "fonte.js", "ponte.js"];
+const ARQUIVOS = ["manifest.json", "fundo.js", "olho.js", "fonte.js", "ponte.js", "opcoes.html", "opcoes.js"];
 let estado = {t: 0, gravando: false};
 
 async function gravando() {
@@ -78,6 +78,14 @@ async function entrarNasGuias() {
 
 async function entrou() {
   await chrome.storage.local.set({carregada: await impressao()});
+  // 11/11: o token da ponte nasce aqui se ainda não existe (as opções mostram, copiam e trocam); sem ele a ponte recusa tudo
+  try {
+    const g = await chrome.storage.local.get("ponteSegredo");
+    if (!g.ponteSegredo) {
+      const b = new Uint8Array(32); crypto.getRandomValues(b);
+      await chrome.storage.local.set({ ponteSegredo: btoa(String.fromCharCode(...b)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "") });
+    }
+  } catch (e) {}
   await entrarNasGuias();
 }
 
@@ -133,11 +141,35 @@ async function flyApi(metodo, caminho, corpo) {
   }, [FLY_API, metodo, caminho, corpo || null]);
 }
 const paraDataUrl = (b) => new Promise((ok, falha) => { const fr = new FileReader(); fr.onload = () => ok(fr.result); fr.onerror = () => falha(fr.error); fr.readAsDataURL(b); });
+/* 11/11/2026 (auditoria): o subirRef buscava QUALQUER endereço com a força da extensão (sem CORS) e devolvia o resultado pela biblioteca
+   do Fly — dava pra puxar os apps locais do PC, o Kakashi ou a rede de casa. Agora só: data: da página, o próprio X-tudo que pediu, ou https de fora
+   (o armazenamento da ARDI etc.). Nunca o PC, a rede local nem o Tailscale; e se um link de fora redirecionar pra dentro, não sobe. */
+function enderecoDeDentro(host) {
+  host = String(host || "").toLowerCase().replace(/^\[|\]$/g, "");
+  if (!host || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".ts.net")) return true;
+  if (!host.includes(".") && !host.includes(":")) return true;                      // nome sem domínio = máquina da rede
+  const m = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    return a === 0 || a === 10 || a === 127 || (a === 169 && b === 254) || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 100 && b >= 64 && b <= 127) || a >= 224;
+  }
+  if (host.includes(":")) return host === "::" || host === "::1" || /^(fc|fd|fe8|fe9|fea|feb)/.test(host) || host.startsWith("::ffff:");
+  return false;
+}
+function refPermitida(url, origemPagina) {
+  if (url.startsWith("data:")) return true;
+  let u; try { u = new URL(url); } catch (e) { return false; }
+  if (u.origin === origemPagina) return true;                                       // o próprio X-tudo que pediu (inclusive o do PC)
+  return u.protocol === "https:" && !enderecoDeDentro(u.hostname);
+}
 // imagem de referência (link do Fly X-tudo ou data: da página) → biblioteca do Fly → {type, uid}; guardada por link pra não subir 2×
-async function subirRef(url, nome) {
+async function subirRef(url, nome, origemPagina) {
+  if (!refPermitida(url, origemPagina)) return { ok: false, erro: "referência fora do permitido (só data:, o próprio X-tudo ou https de fora do PC)" };
   const chave = "flyref:" + url.slice(0, 300);
   if (!url.startsWith("data:")) { const g = await chrome.storage.local.get(chave); if (g[chave]) return { ok: true, dados: g[chave], cache: true }; }
-  const blob = await (await fetch(url)).blob();
+  const resp = await fetch(url);
+  if (resp.url && !url.startsWith("data:") && !refPermitida(resp.url, origemPagina)) return { ok: false, erro: "a referência redirecionou pra um endereço de dentro do PC" };
+  const blob = await resp.blob();
   const dataUrl = await paraDataUrl(blob);
   const res = await noFly(async (API, IP, dataUrl, nome) => {
     const blob = await (await fetch(dataUrl)).blob();
@@ -168,17 +200,33 @@ async function baixar(url) {
     return { ok: true, dados: { dataUrl, tipo: b.type, tamanho: b.size } };
   }, [FLY_API, FLY_IP, url])) || { ok: false, erro: "a aba do Fly não respondeu" };
 }
+/* 11/11/2026 (auditoria; ele: «Pode começar»): SEGREDO DA PONTE. Só a origem não bastava — qualquer código que rodasse no X-tudo (deploy
+   comprometido, dependência maliciosa, XSS) ou qualquer programa na porta 3007 do PC gastava o crédito do Fly em nome dele. Agora todo
+   pedido precisa trazer o token das opções da extensão (opcoes.html, chrome.storage.local «ponteSegredo», 32 bytes aleatórios). Vazio ou
+   diferente = recusa, inclusive o «ola». O token nunca vai pra log, pra mensagem de erro nem de volta pra página. */
+const CHAVE_SEGREDO = "ponteSegredo";
+function mesmoSegredo(guardado, veio) {                // tempo constante: confere o tamanho e todos os caracteres, sem sair no primeiro erro
+  if (typeof guardado !== "string" || typeof veio !== "string" || !guardado) return false;
+  let dif = guardado.length ^ veio.length;
+  for (let i = 0; i < guardado.length; i++) dif |= guardado.charCodeAt(i) ^ (i < veio.length ? veio.charCodeAt(i) : 0);
+  return dif === 0;
+}
+// o content script (ponte.js, olho.js) não precisa ler o storage: fica só pro fundo e pras opções (onde o Chrome deixar)
+try { const p = chrome.storage.local.setAccessLevel && chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" }); if (p && p.catch) p.catch(() => {}); } catch (e) {}
 chrome.runtime.onMessage.addListener((msg, quem, responder) => {
   if (!msg || msg.tipo !== "fly-ponte") return;
   let origem = "";
   try { origem = quem.origin || new URL(quem.url).origin; } catch (e) {}
   if (!ORIGENS_FX.includes(origem)) { responder({ ok: false, erro: "origem não liberada: " + origem }); return; }
-  const a = msg.args || {};
-  const fazer = msg.op === "api" ? flyApi(a.metodo, a.caminho, a.corpo)
-    : msg.op === "subirRef" ? subirRef(String(a.url || ""), a.nome)
-    : msg.op === "baixar" ? baixar(String(a.url || ""))
-    : msg.op === "ola" ? flyApi("GET", "/v1/auth/session/verify")
-    : Promise.resolve({ ok: false, erro: "op desconhecida" });
-  fazer.then(responder, (e) => responder({ ok: false, erro: String(e && e.message || e) }));
+  chrome.storage.local.get(CHAVE_SEGREDO).then((g) => {
+    if (!mesmoSegredo(g[CHAVE_SEGREDO], msg.segredo)) { responder({ ok: false, erro: "segredo inválido" }); return; }
+    const a = msg.args || {};
+    const fazer = msg.op === "api" ? flyApi(a.metodo, a.caminho, a.corpo)
+      : msg.op === "subirRef" ? subirRef(String(a.url || ""), a.nome, origem)
+      : msg.op === "baixar" ? baixar(String(a.url || ""))
+      : msg.op === "ola" ? flyApi("GET", "/v1/auth/session/verify")
+      : Promise.resolve({ ok: false, erro: "op desconhecida" });
+    fazer.then(responder, (e) => responder({ ok: false, erro: String(e && e.message || e) }));
+  }, () => responder({ ok: false, erro: "segredo inválido" }));
   return true;
 });

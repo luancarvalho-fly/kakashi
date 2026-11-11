@@ -21,7 +21,8 @@
     if (d.fxPonte === "oi?") return ola();
     if (d.fxPonte !== "pede" || !d.id || !d.op) return;
     try {
-      chrome.runtime.sendMessage({ tipo: "fly-ponte", op: d.op, args: d.args || {} }, (r) => {
+      // 11/11: o token da ponte vai como veio (o fundo.js confere); nunca é lido, guardado nem devolvido aqui
+      chrome.runtime.sendMessage({ tipo: "fly-ponte", op: d.op, args: d.args || {}, segredo: typeof d.segredo === "string" ? d.segredo : "" }, (r) => {
         const erro = chrome.runtime.lastError;
         window.postMessage(Object.assign({ fxPonte: "resposta", id: d.id }, erro ? { ok: false, erro: erro.message } : r || { ok: false, erro: "sem resposta" }), location.origin);
       });

@@ -1528,10 +1528,39 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    # 11/11/2026 (auditoria de segurança; ele: «Pode começar»): era Access-Control-Allow-Origin "*" — qualquer site aberto no Chrome podia
+    # iniciar/parar/apagar gravação, mandar comando pro painel e escrever eventos que o Claude lê no /kakashi. Agora: página da internet
+    # (Origin http/https, ou «null» de iframe isolado) não entra; entra quem não manda Origin (o painel UXP do Premiere, o Kakashi, curl)
+    # ou manda origem que não é de site (plugin/arquivo). E só pelo nome do próprio PC (site que aponta o domínio pra 127.0.0.1 não passa).
+    # Barrado vai pro servidor.log com a origem, pra achar na hora se algo legítimo ficou de fora.
+    HOSTS_OK = ("127.0.0.1", "localhost", "[::1]")
+
+    def _origem_ok(self):
+        o = (self.headers.get("Origin") or "").strip()
+        return not o or not (o.lower() == "null" or o.lower().startswith(("http:", "https:")))
+
+    def _barrado(self, rota):
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0] if not (self.headers.get("Host") or "").startswith("[") \
+            else (self.headers.get("Host") or "").split("]")[0] + "]"
+        if self._origem_ok() and host in self.HOSTS_OK:
+            return False
+        log_geral("BARRADO %s %s (Origin=%r Host=%r)" % (self.command, rota, self.headers.get("Origin"), self.headers.get("Host")))
+        self.close_connection = True
+        corpo = b'{"ok": false, "erro": "origem nao permitida"}'
+        self.send_response(403)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(corpo)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(corpo)
+        return True
+
     def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        o = (self.headers.get("Origin") or "").strip()
+        if o and self._origem_ok():                     # devolve a própria origem só pra quem pode (plugin); site não lê nada
+            self.send_header("Access-Control-Allow-Origin", o)
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
     def _json(self, obj, codigo=200):
         corpo = json.dumps(obj, ensure_ascii=False).encode("utf-8")
@@ -1556,6 +1585,8 @@ class Handler(BaseHTTPRequestHandler):
         return {"_texto": bruto.decode("utf-8", "replace")}
 
     def do_OPTIONS(self):
+        if self._barrado(self.path.partition("?")[0]):
+            return
         self.send_response(204)
         self._cors()
         self.send_header("Content-Length", "0")
@@ -1563,6 +1594,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         rota, _, query = self.path.partition("?")
+        if self._barrado(rota):
+            return
         try:
             if rota in ("/", "/status"):
                 return self._json(status())
@@ -1586,6 +1619,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         rota = self.path.partition("?")[0]
+        if self._barrado(rota):                         # antes de ler o corpo: nada de fora chega a agir
+            return
         dados = self._corpo()
         try:
             if rota == "/iniciar":

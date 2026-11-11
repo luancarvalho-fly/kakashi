@@ -82,6 +82,13 @@ minha explicação sobre isso».)
   dela (casos) · Ordens de "não fazer". Sempre a fala LITERAL curta entre aspas + `[mm:ss]`.
 - Cada pedido falado vira uma linha de checklist (fala + minuto + onde foi feito). Pedido que vale pra mais de um lugar ("a roxa tem que
   ser verde") vale em TODOS os lugares. Gravação longa ou várias gravações do mesmo projeto: checklist de TODAS, não só da última.
+  O checklist mora no projeto (`CHECKLIST-KAKASHI-<data>.md`, um por dia), uma linha por pedido: minuto · fala literal curta · FEITO /
+  PARCIAL / NÃO FEITO / AMBÍGUO / DESCARTADO · prova (commit, arquivo:linha ou print). Antes de ler a gravação nova, abrir o checklist:
+  o que está PARCIAL ou NÃO FEITO entra na resposta como «continua aberto». (Fala do Luan, 11/11: «aquele checklist de conferência das
+  coisas que eu te peço que você tava fazendo, você não tá fazendo».)
+- **Dose da análise**: gravação curta e clara (até ~1 min, um pedido) = `LEITURA.md` + prints + sabotador curto; longa ou confusa = tudo.
+  Os passos não somem, só encolhem. (Fala do Luan, 11/11: «óbvio que não precisa de análise bizarramente completa toda hora, mas você
+  tem que ser inteligente o suficiente pra fazer essa distinção».)
 - **NUNCA DA TRANSCRIÇÃO DIRETO PRO CÓDIGO.** Ordem fixa, em TODA gravação (até as curtas, até em sequência, até com a pessoa com pressa):
   `LEITURA.md` inteira + prints → cruzar com a gravação antiga que ela citar → `LEITURA-CLAUDE.md` → sabotador → `SABOTADOR.md` (os
   achados e o que mudou na leitura) → só então mexer. (Erro de verdade: 11 gravações seguidas num dia lidas sem leitura escrita nem
