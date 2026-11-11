@@ -8,8 +8,9 @@ _transcricao\\, ou o nome da pasta no lidas.json da skill /kakashi.
   python kakashi_lidas.py novas                  → as correções AINDA NÃO LIDAS (PC, Premiere e AppPessoal), da mais nova pra mais velha
   python kakashi_lidas.py marcar <pasta> --chat <id do chat> [--nota "o que virou"]   → marca como lida (LIDA.json + lidas.json)
   python kakashi_lidas.py quem <pasta>           → quem leu essa sessão
-  python kakashi_lidas.py faltando               → sessões de hoje sem LEITURA-CLAUDE.md ou SABOTADOR.md (a análise que faltou)
+  python kakashi_lidas.py faltando               → sessões de hoje sem LEITURA-CLAUDE.md, PROMPT.md ou SABOTADOR.md (a análise que faltou)
 TRAVA 06/11: marcar com nota final só passa com LEITURA-CLAUDE.md + SABOTADOR.md na pasta; «--nota lendo» reserva sem exigir.
+TRAVA 11/11: gravações a partir de 11/11 19h também precisam do PROMPT.md (passo 4a: a fala reescrita como prompt antes de executar).
 """
 import datetime, json, os, sys
 
@@ -74,6 +75,16 @@ def novas():
                                         ("%.0f s" % dur) if isinstance(dur, (int, float)) else "?", (" · CONTINUA NO " + cont.upper()) if cont else ""))
 
 
+# 11/11 (ele: «rodar um prompt em cima do prompt, para transformar isso num prompt mais eficiente»): o PROMPT.md (passo 4a da skill)
+# é cobrado só das gravações a partir daqui — as anteriores já foram lidas sem ele (a de 18:24 estava sendo lida por outro chat).
+PROMPT_DESDE = "2026-11-11_19"
+
+
+def exigidos(p):
+    nome = os.path.basename(p.rstrip("\\/"))
+    return ("LEITURA-CLAUDE.md", "PROMPT.md", "SABOTADOR.md") if nome[:13] >= PROMPT_DESDE else ("LEITURA-CLAUDE.md", "SABOTADOR.md")
+
+
 def tem(p, nome):
     return any(os.path.isfile(c) for c in (os.path.join(p, nome), os.path.join(p, "_transcricao", nome)))
 
@@ -84,10 +95,12 @@ def marcar(p, chat, nota):
     # (nota final) com a LEITURA-CLAUDE.md (passo 4 da skill) e a SABOTADOR.md (passo 4c: o que o sabotador achou e o que eu corrigi)
     # na pasta. «lendo» (reservar a sessão pra outro chat não pegar) continua livre.
     if nota.strip().lower() != "lendo":
-        falta = [n for n in ("LEITURA-CLAUDE.md", "SABOTADOR.md") if not tem(p, n)]
+        falta = [n for n in exigidos(p) if not tem(p, n)]
         if falta:
             print("NÃO MARCADA: falta " + " e ".join(falta) + " em " + p)
             print("  Passo 4: escrever a LEITURA-CLAUDE.md (pedidos com fala literal [mm:ss], erros meus, o que fica, dúvidas).")
+            if "PROMPT.md" in falta:
+                print("  Passo 4a: reescrever a correção em PROMPT.md pelo PROMPT-MOLDE.md da skill (transcrição consertada, pronto quando).")
             print("  Passo 4c: rodar o sabotador (agente separado) e gravar SABOTADOR.md com os achados e o que mudou na leitura.")
             sys.exit(1)
     d = {"lida_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "chat": chat, "nota": nota}
@@ -126,7 +139,7 @@ def main():
             for n in sorted(os.listdir(base)):
                 p = os.path.join(base, n)
                 if os.path.isdir(p) and n.startswith(hoje) and not n.startswith("_"):
-                    f = [x for x in ("LEITURA-CLAUDE.md", "SABOTADOR.md") if not tem(p, x)]
+                    f = [x for x in exigidos(p) if not tem(p, x)]
                     if f:
                         print("%-8s %s · falta %s" % (tipo, n, ", ".join(f)))
     elif a[0] == "quem":
