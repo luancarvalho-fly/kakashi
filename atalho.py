@@ -9,6 +9,11 @@ config.json → "atalho": "ctrl+pagedown" (começa / conclui; o padrão é o do 
 (letra, número, f1–f24, pagedown, pageup, home, end, insert, delete, pause, scrolllock, espaco, setas, numpad0–9).
 Trocar: janelinha do KAKASHI → TROCAR O ATALHO (vale na hora, sem reiniciar) ou o config.json + reiniciar o Kakashi.
 
+12/11/2026 — MODO CAPTURA (o lugar do Lightshot): config.json → "atalho_captura" (padrão "ctrl+alt+pagedown"). Ele (12/11): «page down
+e control page down é do meu setup, mas o deploy a pessoa escolhe o atalho que ela quiser». Na captura vale tecla de navegação
+SOZINHA (page down/up, home, end, insert, pause, scroll lock, f1–f24): é o jeito do Lightshot, e quem escolhe sabe que ela para de
+funcionar nos outros programas. Trocar: janelinha → «Trocar o atalho da captura».
+
   python atalho.py --conferir "ctrl+alt+k"   → diz se o texto vale e se o atalho está livre (o instalador usa)
 """
 import ctypes, sys, time
@@ -20,6 +25,7 @@ WM_APP = 0x8000
 WM_RECARREGAR = WM_APP + 1      # a thread do atalho relê o config.json e registra de novo
 WM_SOLTAR = WM_APP + 2          # a thread solta os atalhos (enquanto a pessoa aperta o novo na janelinha)
 PADRAO = "ctrl+pagedown"
+PADRAO_CAPTURA = "ctrl+alt+pagedown"
 
 TECLAS = {"pagedown": 0x22, "pageup": 0x21, "end": 0x23, "home": 0x24, "insert": 0x2D, "delete": 0x2E, "pause": 0x13,
           "scrolllock": 0x91, "espaco": 0x20, "esquerda": 0x25, "cima": 0x26, "direita": 0x27, "baixo": 0x28}
@@ -33,13 +39,14 @@ APELIDOS = {"control": "ctrl", "pgdn": "pagedown", "page down": "pagedown", "pgu
 MODS = {"ctrl": MOD_CONTROL, "alt": MOD_ALT, "shift": MOD_SHIFT, "win": MOD_WIN}
 NOME = {"pagedown": "PAGE DOWN", "pageup": "PAGE UP", "scrolllock": "SCROLL LOCK", "espaco": "ESPACO"}
 SOZINHA_PODE = {0x13, 0x91} | set(range(0x70, 0x88))       # sem modificador só vale pause, scroll lock e f1–f24
+SOZINHA_CAPTURA = SOZINHA_PODE | {0x21, 0x22, 0x23, 0x24, 0x2D}   # na captura também page up/down, end, home, insert (o jeito do Lightshot)
 VK_NOME = {v: k for k, v in TECLAS.items()}
 
 THREAD_ID = None        # a thread do atalho (kakashi.pyw) escreve aqui o id dela
 ATIVO = None            # {"gravar": {...}, "cancelar": {...}} registrado agora
 
 
-def ler(txt):
+def ler(txt, captura=False):
     """'ctrl+alt+k' → {"mods", "vk", "texto", "nome"}; texto que não vale → ValueError com o motivo (em palavras simples)."""
     partes = [APELIDOS.get(p.strip().lower(), p.strip().lower()) for p in str(txt or "").split("+") if p.strip()]
     mods, tecla = 0, None
@@ -55,7 +62,7 @@ def ler(txt):
     if not tecla:
         raise ValueError("falta a tecla (ex.: ctrl+alt+k)")
     a = montar(mods, TECLAS[tecla])
-    erro = validar(a)
+    erro = validar(a, captura)
     if erro:
         raise ValueError(erro)
     return a
@@ -68,11 +75,11 @@ def montar(mods, vk):
             "nome": "+".join([m.upper() for m in ordem] + [NOME.get(tecla, tecla.upper())])}
 
 
-def validar(a):
+def validar(a, captura=False):
     if a["vk"] == 0x1B:
         return "o Esc não pode (ele cancela a troca)"
     so_shift = a["mods"] in (0, MOD_SHIFT)
-    if so_shift and a["vk"] not in SOZINHA_PODE:
+    if so_shift and a["vk"] not in (SOZINHA_CAPTURA if captura else SOZINHA_PODE):
         return "use ctrl, alt ou win junto (senão o atalho dispara enquanto você digita)"
     return ""
 
@@ -101,24 +108,34 @@ def do_config(c):
             erro = erro or "atalho_cancelar do config.json não vale (%s)" % e
     if cn is None or (cn["mods"], cn["vk"]) == (g["mods"], g["vk"]):
         cn = cancelar_de(g)
-    return {"gravar": g, "cancelar": cn, "erro": erro}
+    try:                                   # 12/11: o modo captura
+        cp = ler(c.get("atalho_captura") or PADRAO_CAPTURA, captura=True)
+    except ValueError as e:
+        erro = erro or "atalho_captura do config.json não vale (%s): voltei pro Ctrl+Alt+Page Down" % e
+        cp = ler(PADRAO_CAPTURA, captura=True)
+    if (cp["mods"], cp["vk"]) in ((g["mods"], g["vk"]), ((cn or {}).get("mods"), (cn or {}).get("vk"))):
+        erro = erro or "o atalho da captura é igual ao de gravar/cancelar: a captura ficou sem atalho"
+        cp = None
+    return {"gravar": g, "cancelar": cn, "captura": cp, "erro": erro}
 
 
 def legenda(c):
     """texto da janelinha: «CTRL+PAGE DOWN GRAVA · +SHIFT CANCELA» (igual ao do Luan quando é o padrão)."""
     a = do_config(c); g, cn = a["gravar"], a["cancelar"]
+    cp = a.get("captura")
+    fim = (" · %s CAPTURA" % cp["nome"]) if cp else ""
     if not cn:
-        return "%s GRAVA · BOTAO DIREITO NO OLHO CANCELA" % g["nome"]
+        return "%s GRAVA · BOTAO DIREITO NO OLHO CANCELA" % g["nome"] + fim
     extra = cn["mods"] & ~g["mods"]
     if cn["vk"] == g["vk"] and extra in (MOD_SHIFT, MOD_ALT) and (cn["mods"] & g["mods"]) == g["mods"]:
-        return "%s GRAVA · +%s CANCELA" % (g["nome"], "SHIFT" if extra == MOD_SHIFT else "ALT")
-    return "%s GRAVA · %s CANCELA" % (g["nome"], cn["nome"])
+        return "%s GRAVA · +%s CANCELA" % (g["nome"], "SHIFT" if extra == MOD_SHIFT else "ALT") + fim
+    return "%s GRAVA · %s CANCELA" % (g["nome"], cn["nome"]) + fim
 
 
 def teclas_soltar():
     """as teclas do atalho de agora (pra esperar soltar antes do Ctrl+V do «/kakashi»)."""
     vks = [0x11, 0x10, 0x12, 0x5B, 0x5C]
-    for a in ((ATIVO or {}).get("gravar"), (ATIVO or {}).get("cancelar")):
+    for a in ((ATIVO or {}).get("gravar"), (ATIVO or {}).get("cancelar"), (ATIVO or {}).get("captura")):
         if a:
             vks.append(a["vk"])
     return vks or [0x11, 0x10, 0x12, 0x22]
@@ -163,8 +180,9 @@ def _baixo(vk):
     return bool(user32.GetAsyncKeyState(vk) & 0x8000)
 
 
-def capturar(limite=15.0):
-    """espera a pessoa apertar o atalho novo (Esc cancela). Volta {"ok", "texto", "msg"}; msg = texto curto pra janelinha."""
+def capturar(limite=15.0, captura=False):
+    """espera a pessoa apertar o atalho novo (Esc cancela). Volta {"ok", "texto", "msg"}; msg = texto curto pra janelinha.
+    captura=True: o atalho do modo captura (aceita tecla de navegação sozinha)."""
     if MAC:
         import mac
         r = mac.ATALHO.capturar(limite) if mac.ATALHO is not None else None
@@ -195,7 +213,7 @@ def capturar(limite=15.0):
             fim_solta = time.time() + 3
             while time.time() < fim_solta and any(_baixo(v) for v in (vk, 0x11, 0x10, 0x12, 0x5B, 0x5C)):
                 time.sleep(0.02)
-            erro = validar(a)
+            erro = validar(a, captura)
             if erro:
                 return {"ok": False, "msg": "NAO VALE · USE CTRL ALT OU WIN JUNTO"}     # a fonte pixel não tem vírgula
             if not livre(a):

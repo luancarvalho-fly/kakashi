@@ -13,9 +13,15 @@ Na mão: extraia o zip e dê dois cliques no `Instalar.bat`.
 ## Usar
 - **O atalho** (o do Luan é Ctrl+Page Down; você escolhe o seu na instalação) = começa / conclui. O mesmo + **Shift** = cancela (vai
   pra `sessoes\_descartadas`, nunca apaga).
-- **Trocar o atalho** quando quiser: atalho **KAKASHI** na área de trabalho → **TROCAR O ATALHO** → aperte o novo (Esc cancela).
-- O olho do Kakashi aparece no canto da tela só enquanto grava. A janelinha (atalho KAKASHI) lista as últimas gravações (abrir,
-  descartar).
+- **Trocar o atalho** quando quiser: atalho **KAKASHI** na área de trabalho → **Trocar o atalho** → aperte o novo (Esc cancela).
+- **Modo captura** (no lugar do Lightshot; padrão **Ctrl+Alt+Page Down**, o do Luan é Page Down sozinho): aperta o atalho, recorta
+  um pedaço da tela, desenha por cima e Enter copia; enquanto está ligado, junta tudo que você copia e o que termina de baixar; o
+  atalho de novo cola tudo de uma vez (os arquivos como anexo + os links e textos). Trocar: janelinha → **Trocar o atalho da
+  captura** (aceita tecla sozinha como Page Down; ela para de funcionar nos outros programas enquanto o Kakashi estiver aberto).
+- Gravando, a barra do Kakashi aparece no canto de baixo (arrastável): pausar, pedaços, desenho na tela (caneta, marca-texto, linha,
+  seta, quadrado, laser), concluir. Ao concluir ela pergunta **Rápido** ou **Profundo** (quanto de análise o Claude faz). A janelinha
+  (atalho KAKASHI) mostra o estado, o nível do microfone gravando e as últimas gravações (modo, se o Claude já leu, abrir, descartar
+  com Ctrl+Z).
 - **Premiere**: com o painel KAKASHI aberto no Premiere, o atalho grava pelo painel (com a timeline). Se você começa a gravar em outra
   janela e entra no Premiere, ele passa sozinho pro Premiere: é uma gravação só.
 - **Pausar e apagar um pedaço**: gravando no PC, o olho do canto tem o botão **pausar** (duas barras amarelas) / **continuar**

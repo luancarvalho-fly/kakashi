@@ -2020,7 +2020,10 @@ def thread_atalhos(fila):
         a = atalho.do_config(cfg()); g, c = a["gravar"], a["cancelar"]
         ok1 = bool(user32.RegisterHotKey(None, 1, g["mods"] | MOD_NOREPEAT, g["vk"]))
         ok2 = bool(c and user32.RegisterHotKey(None, 2, c["mods"] | MOD_NOREPEAT, c["vk"]))
-        user32.RegisterHotKey(None, 3, MOD_NOREPEAT, 0x22)          # 12/11: Page Down = modo captura (o lugar do Lightshot)
+        cp = a.get("captura")      # 12/11: o modo captura (o lugar do Lightshot), no atalho que a pessoa escolheu
+        ok3 = bool(cp and user32.RegisterHotKey(None, 3, cp["mods"] | MOD_NOREPEAT, cp["vk"]))
+        if cp and not ok3:
+            fila.put(("erro", "%s (captura) já é de outro programa: troque na janelinha do KAKASHI" % cp["nome"]))
         if a["erro"]:
             fila.put(("erro", a["erro"]))
         if not ok1:
@@ -2985,11 +2988,16 @@ class Painel:
         """[(zona, rótulo, ícone)] a mais no pé (o pacote do time põe TROCAR O ATALHO e ATUALIZAÇÃO)"""
         if not hasattr(self, "rot_atalho"):           # pacote da Fly: trocar o atalho e a atualização
             self.rot_atalho = "Trocar o atalho"; self._nova_pintada = "?"; self._pintar_atual()
-        return [("trocar_atalho", self.rot_atalho, "teclado"), ("atualizacao", self.rot_atual, "desfazer")]
+        if not hasattr(self, "rot_captura"):
+            self.rot_captura = "Trocar o atalho da captura"
+        return [("trocar_atalho", self.rot_atalho, "teclado"), ("trocar_captura", self.rot_captura, "recorte"),
+                ("atualizacao", self.rot_atual, "desfazer")]
 
     def clique_extra(self, zona):
         if zona == "trocar_atalho":
             self.trocar_atalho(); return True
+        if zona == "trocar_captura":
+            self.trocar_captura(); return True
         if zona == "atualizacao":
             self.atualizacao(); return True
         return False
@@ -3220,6 +3228,30 @@ class Painel:
         atalho.recarregar()                   # registra o novo (ou devolve o antigo, se cancelou)
         self._rot_atalho(r["msg"], 3.5)
 
+    def trocar_captura(self):
+        """12/11: o atalho do modo captura, escolhido pela pessoa (aceita tecla de navegação sozinha, o jeito do Lightshot)"""
+        if self.tela.quem or getattr(self.tela, "captura", None) is not None:
+            self._rot_captura("Conclua antes", 2.5); return
+        if getattr(self, "_capturando", False):
+            return
+        self._capturando = True; self._cap_c = None
+        atalho.soltar()
+        self._rot_captura("Aperte o atalho da captura · Esc cancela")
+        threading.Thread(target=lambda: setattr(self, "_cap_c", atalho.capturar(captura=True)), daemon=True).start()
+
+    def _rot_captura(self, txt, seg=None):
+        self.rot_captura = txt; self.ass = None
+        if seg:
+            self.win.after(int(seg * 1000), lambda: self.vivo() and self._rot_captura("Trocar o atalho da captura"))
+
+    def _fim_troca_captura(self, r):
+        self._capturando = False
+        if r.get("ok"):
+            c = cfg(); c["atalho_captura"] = r["texto"]; salvar_cfg(c)
+            log("atalho da captura trocado na janelinha: " + r["texto"])
+        atalho.recarregar()
+        self._rot_captura(r["msg"].replace("NOVO ATALHO", "CAPTURA"), 3.5)
+
     def _pintar_atual(self):
         """pacote da Fly (27/10): o botão de atualização mostra a versão nova assim que o vigia (atualizar.py) acha."""
         self._nova_pintada = atualizar.NOVA
@@ -3263,6 +3295,8 @@ class Painel:
     def tique(self):
         if not self.vivo():
             self.tela.painel = None; return
+        if getattr(self, "_capturando", False) and getattr(self, "_cap_c", None) is not None:
+            r, self._cap_c = self._cap_c, None; self._fim_troca_captura(r)
         if getattr(self, "_capturando", False) and getattr(self, "_cap_r", None) is not None:
             r, self._cap_r = self._cap_r, None; self._fim_troca(r)
         if getattr(self, "_procurando", False) and getattr(self, "_atual_r", None) is not None:
