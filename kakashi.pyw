@@ -2059,24 +2059,25 @@ def _tamanho_barra():
 # KAKASHI 3.0 (12/11/2026) — a BARRA no meio da tela no lugar do olho do canto. Ele (chat): «em vez de ter aquela caixinha com pausar
 # e tudo mais, seria maneiro ter uma... barrinha no meio, que você mexe nela... você apaga os fragmentos que você não quer».
 F = _tamanho_barra()
-# 12/11 15:44 (Kakashi, ele apontando a barra): «Tá muito porrado isso aqui, ó» · «coloca um pouco mais minimalista... muda essa
-# estética do Kakashi de 8-bits» · «muito agressivo, muito grande, muito esquisito» · «faz numa pegada com aquela skill de iPhone que a
-# gente usou no Flynder» → a barra saiu do 8 bits: cápsula escura no estilo iOS (skill apple-hig-designer: cores escuras do sistema,
-# fonte Inter, ícones de linha da Segoe Fluent Icons do Windows 11), menor (era 40·F de altura). O Sharingan fica (LEI de 14/10), menor.
-BH = int(30 * F)                    # altura da barra
+# 12/11 16h (ele, no preview das 3 roupagens: «eu prefiro grafite» · «tira esse ícone de raio e lupa» · «tira esse olho do lado do como eu
+# leio» · «substitui a bolinha vermelha de rec pelo olho do Kakashi girando... quando ele tiver pausado... o olho com sangue» · «faltou
+# uma ferramenta de linha... um marca-texto ficaria maneiro também, igual tem no Lightshot») → GRAFITE (pins 331436853846619762 e
+# 593771532153725227): corpo grafite de cantos redondos, botões redondos, a ferramenta escolhida num círculo branco, pedaços e a
+# escolha em controle segmentado, «Concluir» em pílula branca.
+BH = int(32 * F)                    # altura da barra
 CEL = int(28 * F)                   # largura de cada botão de ícone
 MARGEM = max(3, int(4 * F))         # o respiro em cima/embaixo dos botões
-COR = {"fundo": "#1C1C1E", "borda": "#38383A", "hover": "#2C2C2E", "ativo": "#3A3A3C", "texto": "#FFFFFF", "texto2": "#98989F",
-       "texto3": "#636366", "azul": "#0A84FF", "azul2": "#409CFF", "vermelho": "#FF453A", "amarelo": "#FFD60A"}    # iOS escuro
+COR = {"fundo": "#1C1C1E", "borda": "#2C2C2E", "hover": "#2C2C2E", "ativo": "#3A3A3C", "seg": "#2C2C2E", "seg_sel": "#48484A",
+       "texto": "#FFFFFF", "texto2": "#8E8E93", "texto3": "#5A5A5E", "vermelho": "#FF453A", "amarelo": "#FFD60A",
+       "preto": "#000000"}          # grafite (iOS escuro)
 FONTE = "Inter"                     # a da UI V2 do Flynder (instalada); sem ela, a do sistema
-ICONE = {"cursor": "", "caneta": "", "seta": "", "caixa": "", "laser": "", "desfazer": "",
-         "limpar": "", "pausa": "", "play": "", "cancelar": "", "concluir": "", "raio": "",
-         "lupa": ""}          # Segoe Fluent Icons (Windows 11)
-ICONE_TXT = {"cursor": "↖", "caneta": "✎", "seta": "↑", "caixa": "▢", "laser": "●", "desfazer": "↶", "limpar": "⌫", "pausa": "❚❚",
-             "play": "▶", "cancelar": "✕", "concluir": "✓", "raio": "⚡", "lupa": "⌕"}     # sem a fonte de ícones (Mac, Windows 10)
+ICONE = {"cursor": "", "caneta": "", "seta": "", "linha": "", "caixa": "", "marca": "",
+         "laser": "", "desfazer": "", "limpar": "", "pausa": "", "play": "", "cancelar": ""}
+ICONE_TXT = {"cursor": "↖", "caneta": "✎", "seta": "↑", "linha": "／", "caixa": "▢", "marca": "▮", "laser": "●", "desfazer": "↶",
+             "limpar": "⌫", "pausa": "❚❚", "play": "▶", "cancelar": "✕"}     # sem a fonte de ícones (Mac, Windows 10)
 CORES_DESENHO = (("vermelho", "#ff3b5c"), ("amarelo", "#ffd60a"), ("verde", "#30d158"), ("azul", "#0a84ff"))   # as do bug reporter do Rolf
-FERRAMENTAS = (("cursor", "Cursor: mexe no app"), ("caneta", "Caneta"), ("seta", "Seta"), ("caixa", "Caixa"),
-               ("laser", "Laser: some sozinho"))
+FERRAMENTAS = (("cursor", "Cursor: mexe no app"), ("caneta", "Caneta"), ("marca", "Marca-texto"), ("linha", "Linha"), ("seta", "Seta"),
+               ("caixa", "Quadrado"), ("laser", "Laser: some sozinho"))
 LASER_S = 1.1                       # o rastro do laser some em 1,1 s (o número do Rolf)
 
 
@@ -2168,6 +2169,13 @@ class Desenho:
         self.tinta.configure(bg=TRANSP); self.tinta.attributes("-transparentcolor", TRANSP); self.tinta.geometry(geo)
         self.cv = tk.Canvas(self.tinta, width=r - l, height=b - t, bg=TRANSP, highlightthickness=0, bd=0)
         self.cv.pack()
+        # 12/11 16h (ele: «um marca-texto ficaria maneiro também, igual tem no Lightshot»): o marca-texto mora numa janela própria,
+        # translúcida de verdade (alpha 42% + cor-chave), pra o texto de baixo continuar legível
+        self.marca = tk.Toplevel(root); self.marca.overrideredirect(True); self.marca.attributes("-topmost", True)
+        self.marca.configure(bg=TRANSP); self.marca.attributes("-transparentcolor", TRANSP); self.marca.geometry(geo)
+        self.marca.attributes("-alpha", 0.42)
+        self.cvm = tk.Canvas(self.marca, width=r - l, height=b - t, bg=TRANSP, highlightthickness=0, bd=0)
+        self.cvm.pack()
         self.peg = tk.Toplevel(root); self.peg.overrideredirect(True); self.peg.attributes("-topmost", True)
         self.peg.configure(bg="#000000", cursor="crosshair"); self.peg.geometry(geo)
         self.peg.attributes("-alpha", 0.01)
@@ -2176,9 +2184,9 @@ class Desenho:
             self.peg.bind(ev, f)
         self.EX_TINTA = 0x00080000 | 0x00000020 | 0x08000000 | 0x00000080    # layered | transparent (clique passa) | noactivate | toolwindow
         self.EX_PEG = 0x08000000 | 0x00000080                                 # noactivate | toolwindow (recebe o mouse)
-        _estilo_ex(self.tinta, mais=self.EX_TINTA); _estilo_ex(self.peg, mais=self.EX_PEG)
-        self.tinta.withdraw(); self.peg.withdraw()
-        self.tinta_vis = self.peg_vis = False
+        _estilo_ex(self.tinta, mais=self.EX_TINTA); _estilo_ex(self.marca, mais=self.EX_TINTA); _estilo_ex(self.peg, mais=self.EX_PEG)
+        self.tinta.withdraw(); self.marca.withdraw(); self.peg.withdraw()
+        self.tinta_vis = self.peg_vis = self.marca_vis = False
         threading.Thread(target=self._trabalhador, daemon=True).start()
 
     # ---- estado
@@ -2188,7 +2196,7 @@ class Desenho:
         if self.atual is not None:
             self._apagar_itens(self.atual); self.atual = None
         self.ferr = nome
-        self.peg.configure(cursor={"caneta": "pencil", "laser": "none"}.get(nome, "crosshair"))
+        self.peg.configure(cursor={"caneta": "pencil", "marca": "pencil", "laser": "none"}.get(nome, "crosshair"))
         self._mostrar()
 
     def escolher_cor(self, i):
@@ -2202,6 +2210,13 @@ class Desenho:
     def _mostrar(self):
         quer_peg = self.ferr != "cursor"
         quer_tinta = quer_peg or bool(self.tracos) or bool(self.laser)
+        quer_marca = self.ferr == "marca" or any(t["ferr"] == "marca" for t in self.tracos)
+        if quer_marca != self.marca_vis:         # o marca-texto fica embaixo da tinta (a seta por cima do grifado)
+            self.marca_vis = quer_marca
+            if quer_marca:
+                self.marca.deiconify(); self.marca.attributes("-topmost", True); _estilo_ex(self.marca, mais=self.EX_TINTA)
+            else:
+                self.marca.withdraw()
         if quer_tinta != self.tinta_vis:
             self.tinta_vis = quer_tinta
             if quer_tinta:
@@ -2218,7 +2233,7 @@ class Desenho:
 
     def parar(self):
         """a gravação acabou: tudo some, sem evento (não tem mais onde gravar)"""
-        self.cv.delete("all"); self.tracos, self.laser, self.laser_seg, self.atual = [], [], [], None
+        self.cv.delete("all"); self.cvm.delete("all"); self.tracos, self.laser, self.laser_seg, self.atual = [], [], [], None
         self.ferr = "cursor"; self._mostrar()
 
     # ---- mouse no pegador
@@ -2233,7 +2248,7 @@ class Desenho:
         if tr is None:
             return self._mexeu(e)
         pts, ponto = tr["pts"], (e.x_root, e.y_root, time.time())
-        if tr["ferr"] == "caneta":
+        if tr["ferr"] in ("caneta", "marca"):          # mão livre; linha, seta e caixa = só o ponto final
             if abs(ponto[0] - pts[-1][0]) + abs(ponto[1] - pts[-1][1]) >= 2:
                 pts.append(ponto)
         elif len(pts) == 1:
@@ -2248,7 +2263,7 @@ class Desenho:
             return
         pts = tr["pts"]
         xs, ys = [p[0] for p in pts], [p[1] for p in pts]
-        if tr["ferr"] == "caneta":
+        if tr["ferr"] in ("caneta", "marca"):
             pequeno = len(pts) < 2 or max(max(xs) - min(xs), max(ys) - min(ys)) < 4
         else:
             pequeno = len(pts) < 2 or max(abs(pts[-1][0] - pts[0][0]), abs(pts[-1][1] - pts[0][1])) < 6
@@ -2278,33 +2293,50 @@ class Desenho:
 
     # ---- tinta
     def _apagar_itens(self, tr):
+        cv = self.cvm if tr.get("ferr") == "marca" else self.cv
         for i in tr.get("itens", []):
-            self.cv.delete(i)
+            cv.delete(i)
         tr["itens"] = []
 
     def _redesenhar(self, tr):
         self._apagar_itens(tr)
         l, t = self.mon[0], self.mon[1]
-        c, cv, esc = CORES_DESENHO[tr["cor"]][1], self.cv, "#0a0a0d"
+        # 12/11 16h20 (ele: «os elementos na tela, tipo, seta, risco... condizentes com design também... não coloca uns bagulho
+        # quadradão, bruto... pique iPhone... retângulo, bota uma bordinha de leve, não precisa ser ultra boleado... só um bagulho
+        # sofisticado»): traço fino de ponta redonda, sem o contorno preto; seta de cabeça fina; quadrado só com a borda, canto de leve
+        c, cv = CORES_DESENHO[tr["cor"]][1], self.cv
+        larg = max(2, int(3.5 * F))
         xy = [v for x, y, _ in tr["pts"] for v in (x - l, y - t)]
         ferr = tr["ferr"]
         if ferr == "caneta":
             if len(xy) == 2:
                 xy = xy + [xy[0] + 1, xy[1]]
-            tr["itens"] = [cv.create_line(*xy, fill=esc, width=int(9 * F), capstyle="round", joinstyle="round"),
-                           cv.create_line(*xy, fill=c, width=int(5 * F), capstyle="round", joinstyle="round")]
+            tr["itens"] = [cv.create_line(*xy, fill=c, width=larg, capstyle="round", joinstyle="round", smooth=len(xy) > 4)]
+        elif ferr == "marca":     # marca-texto (Lightshot): faixa larga, ponta reta, na janela translúcida
+            if len(xy) == 2:
+                xy = xy + [xy[0] + 1, xy[1]]
+            tr["itens"] = [self.cvm.create_line(*xy, fill=c, width=int(20 * F), capstyle="butt", joinstyle="round")]
+            if not self.marca_vis:
+                self._mostrar()
         elif len(xy) >= 4:
             a, b = xy[:2], xy[-2:]
-            if ferr == "seta":
-                tr["itens"] = [cv.create_line(*a, *b, fill=esc, width=int(9 * F), arrow="last", capstyle="round",
-                                              arrowshape=(int(24 * F), int(28 * F), int(12 * F))),
-                               cv.create_line(*a, *b, fill=c, width=int(5 * F), arrow="last", capstyle="round",
-                                              arrowshape=(int(20 * F), int(24 * F), int(9 * F)))]
-            elif ferr == "caixa":
+            if ferr == "linha":
+                tr["itens"] = [cv.create_line(*a, *b, fill=c, width=larg, capstyle="round")]
+            elif ferr == "seta":
+                tr["itens"] = [cv.create_line(*a, *b, fill=c, width=larg, arrow="last", capstyle="round",
+                                              arrowshape=(int(15 * F), int(17 * F), int(6 * F)))]
+            elif ferr == "caixa":     # só a borda, canto levemente redondo (4 arcos + 4 lados)
                 x0, x1 = sorted((a[0], b[0])); y0, y1 = sorted((a[1], b[1]))
-                tr["itens"] = [cv.create_rectangle(x0, y0, x1, y1, outline="", fill=c, stipple="gray12"),
-                               cv.create_rectangle(x0, y0, x1, y1, outline=esc, width=int(8 * F)),
-                               cv.create_rectangle(x0, y0, x1, y1, outline=c, width=int(4 * F))]
+                r = max(2, min(int(8 * F), (x1 - x0) // 2, (y1 - y0) // 2)); d = 2 * r
+                kw = dict(outline=c, width=larg, style="arc")
+                tr["itens"] = [cv.create_arc(x0, y0, x0 + d, y0 + d, start=90, extent=90, **kw),
+                               cv.create_arc(x1 - d, y0, x1, y0 + d, start=0, extent=90, **kw),
+                               cv.create_arc(x1 - d, y1 - d, x1, y1, start=270, extent=90, **kw),
+                               cv.create_arc(x0, y1 - d, x0 + d, y1, start=180, extent=90, **kw),
+                               cv.create_line(x0 + r, y0, x1 - r, y0, fill=c, width=larg),
+                               cv.create_line(x1, y0 + r, x1, y1 - r, fill=c, width=larg),
+                               cv.create_line(x0 + r, y1, x1 - r, y1, fill=c, width=larg),
+                               cv.create_line(x0, y0 + r, x0, y1 - r, fill=c, width=larg)]
         if not self.tinta_vis:
             self._mostrar()
 
@@ -2516,8 +2548,11 @@ class Tela:
         agora = time.time()
         if agora < self.prox:
             return
-        grav = bool(self.quem)
-        fica = grav or bool(self.escolha)            # 3.0: esperando a escolha a barra fica (com o olho parado)
+        # 12/11 16h (ele: «substitui a bolinha vermelha de rec pelo olho do Kakashi girando... quando ele tiver pausado, não tiver
+        # girando, vai ficar... o olho com sangue... aquela animaçãozinha»): gira = gravando e não pausado; pausou = a animação de
+        # desligar até o olho com sangue, e volta a ligar ao continuar
+        grav = bool(self.quem) and not self.pausado
+        fica = bool(self.quem) or bool(self.escolha)  # 3.0: esperando a escolha a barra fica
         n_lig = len(self.olho["ligar"])
         if self.modo == "escondido":
             if fica:
@@ -2544,7 +2579,7 @@ class Tela:
         self.prox = agora + {"ligando": 0.055, "giro": 0.090, "desligando": 0.045}.get(self.modo, 0.2)
 
     def _img_olho(self):
-        o = self.olho_cinza if ((self.mudo or self.pausado) and self.quem) else self.olho
+        o = self.olho_cinza if (self.mudo and self.quem and not self.pausado) else self.olho   # cinza = microfone mudo (P20)
         if self.modo in ("ligando", "desligando"):
             return o["ligar"][max(0, min(self.quadro, len(o["ligar"]) - 1))]
         if self.modo == "giro":
@@ -2602,9 +2637,6 @@ class Tela:
             d.desfazer()
         elif d is not None and zona == "limpar":
             d.limpar()
-
-    def _zona_em(self, x):
-        return next((z for x0, x1, z in self.zonas if x0 <= x < x1), None)
 
     def _apertou(self, e):
         self.arr = (e.x_root, e.y_root, self.cx, self.y, False, self._zona_em(e.x))
@@ -2682,7 +2714,7 @@ class Tela:
             # 22/10: o "-topmost" do tk se perde depois de outra janela "sempre na frente" (ex.: o Lightshot); reafirma a cada 2 s
             self._ult_topo = agora
             if d is not None and not MAC:
-                for w, vis in ((d.tinta, d.tinta_vis), (d.peg, d.peg_vis)):
+                for w, vis in ((d.marca, d.marca_vis), (d.tinta, d.tinta_vis), (d.peg, d.peg_vis)):
                     if vis:
                         try:
                             hw = user32.GetParent(w.winfo_id()) or w.winfo_id()
@@ -2762,23 +2794,27 @@ class Tela:
         return []
 
     def _letreiro(self):
-        """(texto, cor, gravando?) do letreiro: a dica do botão debaixo do mouse, ou o estado"""
+        """(texto grande, texto pequeno, cor): a dica do botão debaixo do mouse, ou o estado. O «gravando» é o Sharingan girando
+        (12/11 16h, ele: «substitui a bolinha vermelha de rec pelo olho do Kakashi girando»)"""
+        if self.escolha and not self.quem:          # na escolha o letreiro é a pergunta (as dicas não cabem ali)
+            return "Como eu leio?", "", COR["texto"]
         z = self.hover
         dica = next((dc for _, _, zz, dc in self._dicas if zz == z), None) if z is not None else None
         if dica:
-            return dica, COR["texto2"], False
+            return dica, "", COR["texto2"]
         if self.quem:
             s = int(time.time() - self.desde) if self.desde else 0
+            tempo = "%d:%02d" % (s // 60, s % 60)
             nome = {"pc": "PC", "app_pessoal": "AppPessoal", "premiere": "Premiere"}.get(self.quem, "")
             if self.mudo:            # P20: gravação muda há > 20 s: «Sem som» piscando (vermelho / apagado a cada 0,5 s)
-                return "Sem som %d:%02d" % (s // 60, s % 60), (COR["vermelho"] if int(time.time() * 2) % 2 == 0 else COR["texto3"]), False
+                return "Sem som " + tempo, "", (COR["vermelho"] if int(time.time() * 2) % 2 == 0 else COR["texto3"])
             if self.pausado:
-                return "%s pausado %d:%02d" % (nome, s // 60, s % 60), COR["amarelo"], False
+                return tempo, nome + " · pausado", COR["amarelo"]
             amarelo = self.pisca and int(time.time() * 2) % 2 == 0      # 10 min sem voz
-            return "%s %d:%02d" % (nome, s // 60, s % 60), (COR["amarelo"] if amarelo else COR["texto"]), True
+            return tempo, nome, (COR["amarelo"] if amarelo else COR["texto"])
         if self.escolha:
-            return "Como eu leio?", COR["texto"], False
-        return (self.aviso or "")[:40], COR["amarelo"], False
+            return "Como eu leio?", "", COR["texto"]
+        return (self.aviso or "")[:40], "", COR["amarelo"]
 
     def _itens(self):
         """[(largura, zona, dica, função de desenho(cv, x0, x1))] da esquerda pra direita"""
@@ -2790,51 +2826,67 @@ class Tela:
             it.append((BH, "olho", "Concluir", self._d_olho))
             it.append((self.w_txt, None, None, self._d_letreiro))
             if self.quem in ("pc", "premiere"):
-                it.append((CEL, "pausa", "Continuar" if self.pausado else "Pausar",
-                           lambda cv, a, b: self._d_botao_ico(cv, a, b, "play" if self.pausado else "pausa")))
-                ps = self._pedacos()
+                it.append((CEL + int(2 * F), "pausa", "Continuar" if self.pausado else "Pausar",
+                           lambda cv, a, b: self._d_redondo(cv, a, b, "play" if self.pausado else "pausa", fundo=COR["seg"])))
+                ps = self._pedacos()[-12:]
                 if ps:
-                    sep(int(2 * F))
-                    for n, est in ps[-12:]:
-                        dica = "Pedaço %d: %s" % (n, {"gravando": "gravando", "vale": "apagar", "apagado": "voltar"}[est])
-                        it.append((int(22 * F), ("ped", n), dica, lambda cv, a, b, n=n, est=est: self._d_pedaco(cv, a, b, n, est)))
+                    sep(int(4 * F))
+                    w1 = int(21 * F)
+                    def segs(cv, a, b, ps=ps, w1=w1):
+                        self._capsula(cv, a, MARGEM, b, BH - MARGEM, int(8 * F), COR["seg"])
+                        for i, (n, est) in enumerate(ps):
+                            self._d_pedaco(cv, a + int(3 * F) + i * w1, a + int(3 * F) + (i + 1) * w1, n, est)
+                    it.append((len(ps) * w1 + int(6 * F), None, None, segs))
+                    # as zonas de clique de cada pedaço (por cima do mesmo lugar: largura zero na fila, só a zona)
+                    base = sum(w for w, _, _, _ in it) - (len(ps) * w1 + int(6 * F)) + int(3 * F)
+                    self._zonas_ped = [(base + i * w1, base + (i + 1) * w1, ("ped", n),
+                                        "Pedaço %d: %s" % (n, {"gravando": "gravando", "vale": "apagar", "apagado": "voltar"}[est]))
+                                       for i, (n, est) in enumerate(ps)]
+                else:
+                    self._zonas_ped = []
+            else:
+                self._zonas_ped = []
             if self.desenho is not None:
                 risco()
                 for nome, dica in FERRAMENTAS:
                     it.append((CEL, ("ferr", nome), dica, lambda cv, a, b, nome=nome: self._d_ferr(cv, a, b, nome)))
                 sep(int(4 * F))
                 for i, (nome, _) in enumerate(CORES_DESENHO):
-                    it.append((int(20 * F), ("cor", i), nome.capitalize(), lambda cv, a, b, i=i: self._d_cor(cv, a, b, i)))
+                    it.append((int(18 * F), ("cor", i), nome.capitalize(), lambda cv, a, b, i=i: self._d_cor(cv, a, b, i)))
                 sep(int(4 * F))
-                it.append((CEL, "desfazer", "Desfazer o último", lambda cv, a, b: self._d_botao_ico(cv, a, b, "desfazer")))
-                it.append((CEL, "limpar", "Limpar os desenhos", lambda cv, a, b: self._d_botao_ico(cv, a, b, "limpar")))
+                it.append((CEL, "desfazer", "Desfazer o último", lambda cv, a, b: self._d_redondo(cv, a, b, "desfazer")))
+                it.append((CEL, "limpar", "Limpar os desenhos", lambda cv, a, b: self._d_redondo(cv, a, b, "limpar")))
             risco()
-            it.append((self._w_pilula("Concluir", "concluir"), "concluir", "Concluir (= o atalho)",
-                       lambda cv, a, b: self._d_pilula(cv, a, b, "Concluir", "concluir", COR["ativo"], "#48484A")))
-            it.append((CEL, "cancelar", "Cancelar tudo", lambda cv, a, b: self._d_botao_ico(cv, a, b, "cancelar", COR["texto2"])))
+            it.append((self.f_bold.measure("Concluir") + int(30 * F), "concluir", "Concluir (= o atalho)", self._d_concluir))
+            it.append((CEL, "cancelar", "Cancelar tudo", lambda cv, a, b: self._d_redondo(cv, a, b, "cancelar", COR["texto2"])))
         elif self.escolha:
-            it.append((BH, None, None, self._d_olho))
-            it.append((self.w_txt, None, None, self._d_letreiro))
-            it.append((self._w_pilula("Rápido", "raio"), "rapido", "Coisa rápida",
-                       lambda cv, a, b: self._d_pilula(cv, a, b, "Rápido", "raio", COR["azul"], COR["azul2"])))
-            sep(int(6 * F))
-            it.append((self._w_pilula("Profundo", "lupa"), "profundo", "Análise profunda",
-                       lambda cv, a, b: self._d_pilula(cv, a, b, "Profundo", "lupa", COR["ativo"], "#48484A")))
+            self._zonas_ped = []
+            sep(int(4 * F))
+            it.append((self.f_bold.measure("Como eu leio?") + int(18 * F), None, None, self._d_letreiro))
+            wr, wp = self.f_bold.measure("Rápido") + int(30 * F), self.f_bold.measure("Profundo") + int(30 * F)
+            it.append((int(4 * F), None, None, lambda cv, a, b, w=wr + wp: self._capsula(cv, a, MARGEM, a + w + int(8 * F), BH - MARGEM,
+                                                                                       int(10 * F), COR["seg"])))
+            it.append((wr, "rapido", "Coisa rápida", lambda cv, a, b: self._d_segmento(cv, a, b, "Rápido", True)))
+            it.append((wp, "profundo", "Análise profunda", lambda cv, a, b: self._d_segmento(cv, a, b, "Profundo", False)))
+            it.append((int(4 * F), None, None, None))
             fila = self.escolha.get("fila", 1)
             if fila > 1:
                 txt = "+%d" % (fila - 1)
                 it.append((self.f_txt.measure(txt) + int(16 * F), None, None,
                            lambda cv, a, b, t=txt: cv.create_text((a + b) // 2, BH // 2, text=t, fill=COR["texto2"], font=self.f_txt)))
-            sep(int(2 * F))
-            it.append((CEL, "descartar", "Descartar esta", lambda cv, a, b: self._d_botao_ico(cv, a, b, "cancelar", COR["texto2"])))
+            else:
+                sep(int(4 * F))
+            it.append((CEL + int(2 * F), "descartar", "Descartar esta",
+                       lambda cv, a, b: self._d_redondo(cv, a, b, "cancelar", COR["texto2"], fundo=COR["seg"])))
         it.append((int(8 * F), None, None, None))
         return it
 
-    def _w_pilula(self, txt, ico):
-        return self.f_bold.measure(txt) + self.f_ico.measure(self._glifo(ico)) + int(30 * F)
-
     def _glifo(self, nome):
         return (ICONE if self.tem_icones else ICONE_TXT)[nome]
+
+    def _zona_em(self, x):
+        z = next((z for x0, x1, z, _ in getattr(self, "_zonas_ped", []) if x0 <= x < x1), None)
+        return z if z is not None else next((z for x0, x1, z in self.zonas if x0 <= x < x1), None)
 
     def _assinatura(self, itens, W):
         """tudo que aparece na barra, menos o quadro do Sharingan: igual = não redesenha (só troca a imagem do olho)"""
@@ -2853,8 +2905,9 @@ class Tela:
                 self.cv.itemconfigure(self._id_olho, image=self._img_olho())
             return
         self._ass = ass
-        cv = self.cv; cv.delete("all"); self.zonas = []; self._dicas = []; self._id_olho = None
-        self._capsula(cv, 0, 0, W - 1, BH - 1, BH // 2, COR["fundo"], COR["borda"])
+        cv = self.cv; cv.delete("all"); self.zonas = []; self._id_olho = None
+        self._dicas = [(x0, x1, z, dc) for x0, x1, z, dc in getattr(self, "_zonas_ped", [])]
+        self._capsula(cv, 0, 0, W - 1, BH - 1, int(11 * F), COR["fundo"], COR["borda"])
         x = 0
         for w, zona, dica, f in itens:
             self._z = zona
@@ -2869,9 +2922,8 @@ class Tela:
     # peças
     @staticmethod
     def _capsula(cv, x0, y0, x1, y1, r, fill, outline=""):
-        """retângulo de cantos redondos (r = metade da altura = cápsula)"""
-        # 4 círculos nos cantos + 2 retângulos (o polígono «smooth» do Tk afundava a borda de cima e vazava o fundo); a borda = a mesma
-        # forma 1 px maior por baixo
+        """retângulo de cantos redondos: 4 círculos + 2 retângulos (o polígono «smooth» do Tk afundava a borda e vazava o fundo);
+        a borda = a mesma forma 1 px maior por baixo"""
         def forma(x0, y0, x1, y1, r, cor):
             if not cor:
                 return
@@ -2899,73 +2951,73 @@ class Tela:
         self._id_olho = cv.create_image((a + b) // 2, BH // 2, image=self._img_olho())
 
     def _d_letreiro(self, cv, a, b):
-        txt, cor, gravando = self._letreiro()
-        x = a + int(4 * F)
-        if gravando:              # o pontinho vermelho de «gravando» do iPhone
-            r = max(3, int(3.5 * F))
-            cv.create_oval(x, BH // 2 - r, x + 2 * r, BH // 2 + r, fill=COR["vermelho"], outline="")
-            x += 2 * r + int(7 * F)
-        if txt:
-            cv.create_text(x, BH // 2, text=txt, fill=cor, font=self.f_txt, anchor="w")
+        grande, pequeno, cor = self._letreiro()
+        x = a + int(6 * F)
+        if grande:
+            cv.create_text(x, BH // 2, text=grande, fill=cor, font=self.f_bold if self.quem or self.escolha else self.f_txt, anchor="w")
+        if pequeno:
+            cv.create_text(x + self.f_bold.measure(grande) + int(8 * F), BH // 2, text=pequeno, fill=COR["texto2"], font=self.f_txt,
+                           anchor="w")
 
     def _d_risco(self, cv, a, b):
         cx = (a + b) // 2
-        cv.create_line(cx, int(BH * 0.27), cx, int(BH * 0.73), fill=COR["borda"], width=max(1, int(F)))
+        cv.create_line(cx, int(BH * 0.3), cx, int(BH * 0.7), fill="#38383A", width=max(1, int(F)))
 
-    def _fundo_botao(self, cv, a, b, ativo=False):
-        if ativo or self.hover == self._z:
-            self._capsula(cv, a + int(2 * F), MARGEM, b - int(2 * F), BH - MARGEM, (BH - 2 * MARGEM) // 2,
-                          COR["ativo"] if ativo else COR["hover"])
+    def _circulo(self, cv, cx, cor):
+        r = (BH - 2 * MARGEM) // 2
+        cv.create_oval(cx - r, BH // 2 - r, cx + r, BH // 2 + r, fill=cor, outline=cor)
 
-    def _d_botao_ico(self, cv, a, b, ico, cor=None, ativo=False):
-        self._fundo_botao(cv, a, b, ativo)
-        cv.create_text((a + b) // 2, BH // 2, text=self._glifo(ico), fill=cor or COR["texto"], font=self.f_ico,
-                       angle=-45 if (ico == "seta" and self.tem_icones) else 0)
+    def _d_redondo(self, cv, a, b, ico, cor=None, fundo=None, ativo=False):
+        """botão redondo (pin 1): fundo cinza (ou nada), branco quando é a ferramenta escolhida"""
+        cx = (a + b) // 2
+        if ativo:
+            self._circulo(cv, cx, COR["texto"])
+        elif self.hover == self._z:
+            self._circulo(cv, cx, COR["ativo"] if fundo else COR["hover"])
+        elif fundo:
+            self._circulo(cv, cx, fundo)
+        c = COR["preto"] if ativo else (cor or COR["texto"])
+        cv.create_text(cx, BH // 2, text=self._glifo(ico), fill=c, font=self.f_ico,
+                       angle=-45 if (ico in ("seta", "linha") and self.tem_icones) else 0)
 
     def _d_pedaco(self, cv, a, b, n, est):
-        x0, x1, y0, y1 = a + int(2 * F), b - int(2 * F), MARGEM + int(2 * F), BH - MARGEM - int(2 * F)
-        if est == "gravando":
-            self._capsula(cv, x0, y0, x1, y1, (y1 - y0) // 2, COR["vermelho"])
-            cor = COR["texto"]
-        elif est == "vale":
-            self._capsula(cv, x0, y0, x1, y1, (y1 - y0) // 2, COR["hover"] if self.hover == self._z else COR["ativo"])
-            cor = COR["texto"]
-        else:                     # apagado: só o contorno, número riscado
-            self._capsula(cv, x0, y0, x1, y1, (y1 - y0) // 2, COR["fundo"] if self.hover != self._z else COR["hover"], COR["texto3"])
-            cv.create_line(x0 + int(4 * F), (y0 + y1) // 2, x1 - int(4 * F), (y0 + y1) // 2, fill=COR["texto3"], width=max(1, int(F)))
-            cor = COR["texto3"]
+        """um pedaço dentro do segmentado (pin 3): o que grava fica destacado com o número vermelho; apagado = cinza riscado"""
+        z = ("ped", n)
+        if est == "gravando" or self.hover == z:
+            self._capsula(cv, a + 1, MARGEM + int(3 * F), b - 1, BH - MARGEM - int(3 * F), int(6 * F), COR["seg_sel"])
+        cor = {"gravando": COR["vermelho"], "vale": COR["texto"], "apagado": COR["texto3"]}[est]
         cv.create_text((a + b) // 2, BH // 2, text=str(n), fill=cor, font=self.f_peq)
+        if est == "apagado":
+            cv.create_line(a + int(5 * F), BH // 2, b - int(5 * F), BH // 2, fill=COR["texto3"], width=max(1, int(F)))
 
     def _d_ferr(self, cv, a, b, nome):
         d = self.desenho
         ativo = d is not None and d.ferr == nome
-        if nome == "laser":
-            cor = COR["vermelho"]
-        elif nome == "cursor" or d is None:
-            cor = COR["texto"]
-        else:
-            cor = CORES_DESENHO[d.cor][1] if ativo else COR["texto"]
-        self._d_botao_ico(cv, a, b, nome, cor, ativo)
+        cor = COR["vermelho"] if nome == "laser" else COR["texto"]
+        self._d_redondo(cv, a, b, nome, cor, ativo=ativo)
 
     def _d_cor(self, cv, a, b, i):
         d = self.desenho
-        cx, cy, r = (a + b) // 2, BH // 2, max(4, int(6 * F))
+        cx, cy, r = (a + b) // 2, BH // 2, max(4, int(5 * F))
+        rr = r + max(3, int(3 * F))
         if d is not None and d.cor == i:
-            rr = r + max(3, int(3 * F))
             cv.create_oval(cx - rr, cy - rr, cx + rr, cy + rr, outline=COR["texto"], width=max(1, int(1.5 * F)))
         elif self.hover == self._z:
-            rr = r + max(3, int(3 * F))
             cv.create_oval(cx - rr, cy - rr, cx + rr, cy + rr, outline=COR["texto3"], width=max(1, int(F)))
         cv.create_oval(cx - r, cy - r, cx + r, cy + r, fill=CORES_DESENHO[i][1], outline="")
 
-    def _d_pilula(self, cv, a, b, txt, ico, fundo, fundo_hover):
+    def _d_concluir(self, cv, a, b):
+        """«Concluir» em pílula branca (pin 1)"""
         y0, y1 = MARGEM, BH - MARGEM
-        self._capsula(cv, a + int(2 * F), y0, b - int(2 * F), y1, (y1 - y0) // 2, fundo_hover if self.hover == self._z else fundo)
-        gi = self._glifo(ico)
-        wi, wt = self.f_ico.measure(gi), self.f_bold.measure(txt)
-        x = (a + b - wi - int(6 * F) - wt) // 2
-        cv.create_text(x, BH // 2, text=gi, fill=COR["texto"], font=self.f_ico, anchor="w")
-        cv.create_text(x + wi + int(6 * F), BH // 2, text=txt, fill=COR["texto"], font=self.f_bold, anchor="w")
+        self._capsula(cv, a + int(2 * F), y0, b - int(2 * F), y1, (y1 - y0) // 2, "#E5E5EA" if self.hover == self._z else COR["texto"])
+        cv.create_text((a + b) // 2, BH // 2, text="Concluir", fill=COR["preto"], font=self.f_bold)
+
+    def _d_segmento(self, cv, a, b, txt, principal):
+        """uma opção do segmentado da escolha (pin 3): a principal (Rápido) fica destacada; a outra acende com o mouse"""
+        if principal or self.hover == self._z:
+            self._capsula(cv, a + int(1 * F), MARGEM + int(3 * F), b - int(1 * F), BH - MARGEM - int(3 * F), int(7 * F), COR["seg_sel"])
+        cv.create_text((a + b) // 2, BH // 2, text=txt, fill=COR["texto"] if (principal or self.hover == self._z) else "#C7C7CC",
+                       font=self.f_bold)
 
 
 FLAG_PAINEL = os.path.join(AQUI, "abrir_painel.flag")

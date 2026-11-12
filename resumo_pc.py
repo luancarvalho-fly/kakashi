@@ -391,7 +391,8 @@ def linha_evento(x, uia_por_clique):
     if tp == "traco":
         f = x.get("ferramenta"); cor = "" if f == "laser" else " %s" % x.get("cor", "")
         alvo = descrever_elemento(x["alvo"]) if x.get("alvo") else "(sem elemento: ver o print)"
-        oq = {"caneta": "riscou", "seta": "apontou com a seta", "caixa": "marcou com a caixa", "laser": "passou o laser"}.get(f, f)
+        oq = {"caneta": "riscou", "seta": "apontou com a seta", "caixa": "marcou com a caixa", "laser": "passou o laser",
+              "linha": "traçou uma linha", "marca": "grifou com o marca-texto"}.get(f, f)
         cx = x.get("caixa") or [0, 0, 0, 0]
         return "- %s ✏️ DESENHO %d: %s%s → %s · ponta (%s, %s) · área [%d,%d %dx%d]%s" % (
             tt, x.get("n", 0), oq, cor, alvo, *(x.get("ponta") or ["?", "?"]), cx[0], cx[1], cx[2] - cx[0], cx[3] - cx[1],
