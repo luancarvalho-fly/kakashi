@@ -61,6 +61,7 @@ sys.path.insert(0, AQUI)
 import olho  # noqa: E402
 import atalho  # noqa: E402   # pacote da Fly (27/10): o atalho que a pessoa escolher
 import atualizar  # noqa: E402   # pacote da Fly (27/10): versão nova no GitHub da Fly
+import visual  # noqa: E402   # 3.0 (12/11): a barra e a janelinha lisas (PIL)
 SESSOES = os.path.join(AQUI, "sessoes")
 PORTA = 7816
 CFG = os.path.join(AQUI, "config.json")
@@ -2064,17 +2065,6 @@ F = _tamanho_barra()
 # uma ferramenta de linha... um marca-texto ficaria maneiro também, igual tem no Lightshot») → GRAFITE (pins 331436853846619762 e
 # 593771532153725227): corpo grafite de cantos redondos, botões redondos, a ferramenta escolhida num círculo branco, pedaços e a
 # escolha em controle segmentado, «Concluir» em pílula branca.
-BH = int(32 * F)                    # altura da barra
-CEL = int(28 * F)                   # largura de cada botão de ícone
-MARGEM = max(3, int(4 * F))         # o respiro em cima/embaixo dos botões
-COR = {"fundo": "#1C1C1E", "borda": "#2C2C2E", "hover": "#2C2C2E", "ativo": "#3A3A3C", "seg": "#2C2C2E", "seg_sel": "#48484A",
-       "texto": "#FFFFFF", "texto2": "#8E8E93", "texto3": "#5A5A5E", "vermelho": "#FF453A", "amarelo": "#FFD60A",
-       "preto": "#000000"}          # grafite (iOS escuro)
-FONTE = "Inter"                     # a da UI V2 do Flynder (instalada); sem ela, a do sistema
-ICONE = {"cursor": "", "caneta": "", "seta": "", "linha": "", "caixa": "", "marca": "",
-         "laser": "", "desfazer": "", "limpar": "", "pausa": "", "play": "", "cancelar": ""}
-ICONE_TXT = {"cursor": "↖", "caneta": "✎", "seta": "↑", "linha": "／", "caixa": "▢", "marca": "▮", "laser": "●", "desfazer": "↶",
-             "limpar": "⌫", "pausa": "❚❚", "play": "▶", "cancelar": "✕"}     # sem a fonte de ícones (Mac, Windows 10)
 CORES_DESENHO = (("vermelho", "#ff3b5c"), ("amarelo", "#ffd60a"), ("verde", "#30d158"), ("azul", "#0a84ff"))   # as do bug reporter do Rolf
 FERRAMENTAS = (("cursor", "Cursor: mexe no app"), ("caneta", "Caneta"), ("marca", "Marca-texto"), ("linha", "Linha"), ("seta", "Seta"),
                ("caixa", "Quadrado"), ("laser", "Laser: some sozinho"))
@@ -2092,51 +2082,6 @@ def _estilo_ex(win, mais=0, menos=0):
     except Exception as e:
         log("estilo da janela: %r" % e)
         return None
-
-
-def desenhar_trilho(cv, x, y, w, h, ps, sel):
-    """os pedaços da gravação do PC (o da janelinha e o de cima do olho): vermelho = vale, vazado = apagado, vivo = gravando,
-    contorno amarelo = selecionado. Devolve [(x0, x1, pedaço)] pro clique."""
-    cv.create_rectangle(x, y, x + w, y + h, fill="#121217", outline="")
-    blocos = []
-    if not ps:
-        return blocos
-    agora = time.time()
-    durs = [p["dur"] if p["dur"] is not None else max(0.5, agora - p["epoch"]) for p in ps]
-    tot = sum(durs) or 1; xx = x + 2; livre = w - 4 - 3 * (len(ps) - 1)
-    for p, d in zip(ps, durs):
-        bw = max(6, int(livre * d / tot)); x1 = min(x + w - 2, xx + bw)
-        if p["apagado"]:
-            cv.create_rectangle(xx, y + 4, x1, y + h - 4, fill="#1a1a20", outline="#3a3a44")
-        else:
-            cv.create_rectangle(xx, y + 4, x1, y + h - 4, fill="#ff1e2e" if p["dur"] is None else "#d6001c", outline="")
-        if sel == p["n"]:
-            cv.create_rectangle(xx - 1, y + 2, x1 + 1, y + h - 2, outline="#FFE600", width=2)
-        blocos.append((xx, x1, p)); xx = x1 + 3
-    return blocos
-
-
-def botao_8bits(cv, x0, y0, x1, y1, fundo, claro, escuro):
-    """a borda com relevo do painel (claro em cima/esquerda, escuro embaixo/direita), desenhada num canvas"""
-    cv.create_rectangle(x0, y0, x1, y1, fill=fundo, outline="")
-    cv.create_rectangle(x0, y0, x1, y0 + 3, fill=claro, outline=""); cv.create_rectangle(x0, y0, x0 + 3, y1, fill=claro, outline="")
-    cv.create_rectangle(x0, y1 - 3, x1, y1, fill=escuro, outline=""); cv.create_rectangle(x1 - 3, y0, x1, y1, fill=escuro, outline="")
-
-
-def olho_cinza_pil(arq, k):
-    """P20: o quadro do olho em CINZA (mesmo tamanho do subsample(k) do Tk: pega 1 pixel a cada k). Transparência mantida."""
-    from PIL import Image, ImageEnhance
-    im = Image.open(arq).convert("RGBA")
-    im = im.resize((max(1, -(-im.width // k)), max(1, -(-im.height // k))), Image.NEAREST)
-    a = im.getchannel("A")
-    g = ImageEnhance.Brightness(im.convert("L")).enhance(0.85).convert("RGBA")
-    g.putalpha(a)
-    return g
-
-
-def olho_cinza(arq, k, master):
-    from PIL import ImageTk
-    return ImageTk.PhotoImage(olho_cinza_pil(arq, k), master=master)
 
 
 class Desenho:
@@ -2458,9 +2403,10 @@ class Tela:
             self.cx, self.y = int(c["barra_cx"]), int(c.get("barra_y", int(64 * F)))
         else:
             ox, oy = int(c.get("olho_x", sw - int(83 * ESC))), int(c.get("olho_y", sh - int(76 * ESC)))
-            self.dir = min(sw - int(6 * F), ox + int(22 * F)); self.y = oy - BH // 2; self.cx = self.dir - 50
-        self.W = 100
-        self.cv = tk.Canvas(self.root, width=self.W, height=BH, bg="systemTransparent" if MAC else TRANSP, highlightthickness=0)
+            self.dir = min(sw - int(6 * F), ox + int(22 * F)); self.y = oy - int(round(34 * F)) // 2; self.cx = self.dir - 50
+        self.F = F                                   # a escala da barra (− / + na janelinha muda na hora)
+        self.W, self.H = 100, int(round(34 * F))
+        self.cv = tk.Canvas(self.root, width=self.W, height=self.H, bg="systemTransparent" if MAC else TRANSP, highlightthickness=0)
         self.cv.pack()
         self._geo()
         self.olho = self._carregar_olho(); self.modo = "escondido"; self.quadro = 0; self.prox = 0.0; self.visivel = True
@@ -2468,18 +2414,6 @@ class Tela:
         self.quem = None; self.desde = None; self.aviso = None; self.pisca = False; self.mudo = False; self.ult_estado = 0
         self.pausado = False; self.escolha = None
         self.zonas = []; self.hover = None; self.arr = None; self._z = None; self._dicas = []
-        from tkinter import font as tkfont
-        fams = set(tkfont.families(self.root))
-        fam = FONTE if FONTE in fams else ("Segoe UI Variable Text" if "Segoe UI Variable Text" in fams else "Segoe UI")
-        self.f_txt = tkfont.Font(root=self.root, family=fam, size=-int(13 * F))
-        semi = FONTE + " SemiBold"
-        self.f_bold = tkfont.Font(root=self.root, family=semi if semi in fams else fam, size=-int(13 * F),
-                                  weight="normal" if semi in fams else "bold")
-        self.f_peq = tkfont.Font(root=self.root, family=semi if semi in fams else fam, size=-int(11 * F))
-        self.tem_icones = "Segoe Fluent Icons" in fams
-        self.f_ico = tkfont.Font(root=self.root, family="Segoe Fluent Icons" if self.tem_icones else fam, size=-int(15 * F))
-        self.w_txt = max(self.f_txt.measure(s) for s in ("Premiere pausado 00:00", "Laser: some sozinho", "Cursor: mexe no app",
-                                                         "Concluir (= o atalho)", "Análise profunda")) + int(26 * F)
         self.cv.bind("<ButtonPress-1>", self._apertou); self.cv.bind("<B1-Motion>", self._arrastou)
         self.cv.bind("<ButtonRelease-1>", self._soltou); self.cv.bind("<Button-3>", self._menu)
         self.cv.bind("<Motion>", lambda e: setattr(self, "hover", self._zona_em(e.x)))
@@ -2518,17 +2452,17 @@ class Tela:
     def _geo(self):
         if self.dir is not None:                     # presa pela ponta direita (o canto do olho)
             self.cx = self.dir - self.W // 2
-        self.root.geometry("%dx%d+%d+%d" % (self.W, BH, self.cx - self.W // 2, self.y))
+        self.root.geometry("%dx%d+%d+%d" % (self.W, self.H, self.cx - self.W // 2, self.y))
 
     def centro(self):
-        return self.cx, self.y + BH // 2
+        return self.cx, self.y + self.H // 2
 
     def _centralizar(self):
         """botão direito → «Barra de volta pro canto»: esquece o lugar arrastado e volta pro canto do olho"""
         c = cfg(); c.pop("barra_cx", None); c.pop("barra_y", None); salvar_cfg(c)
         sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
         ox, oy = int(c.get("olho_x", sw - int(83 * ESC))), int(c.get("olho_y", sh - int(76 * ESC)))
-        self.dir = min(sw - int(6 * F), ox + int(22 * F)); self.y = oy - BH // 2; self._geo()
+        self.dir = min(sw - int(6 * F), ox + int(22 * F)); self.y = oy - self.H // 2; self._geo()
 
     def topo(self):
         """a barra por cima de tudo (inclusive do pegador do desenho), sem pegar o foco"""
@@ -2542,16 +2476,18 @@ class Tela:
 
     # ---- o olho (os mesmos quadros e tempos do painel do Premiere)
     def _carregar_olho(self):
-        # main.js do painel: ligar 55 ms, giro 90 ms em loop, desligar 45 ms ao contrário
-        k = max(1, round(160 / max(16, BH - 6 * F)))
-        abre = lambda n: tk.PhotoImage(file=os.path.join(ICONES, n)).subsample(k)    # noqa: E731
+        """os quadros do Sharingan (os mesmos do painel do Premiere: ligar 55 ms, giro 90 ms, desligar 45 ms), reduzidos LISOS
+        (12/11: o pixel a pixel serrilhava). Cinza = gravando MUDO (P20)."""
+        from PIL import ImageTk
+        px = int(24 * self.F)
         nomes = {"olho": "olho.png",
                  "ligar": ["ligar_%02d.png" % i for i in range(18) if os.path.isfile(os.path.join(ICONES, "ligar_%02d.png" % i))],
                  "giro": ["giro_%02d.png" % i for i in range(12)]}
+        def abre(n, cinza=False):
+            return ImageTk.PhotoImage(visual.olho(ICONES, n, px, cinza), master=self.root)
         olho_ = {c: abre(v) if isinstance(v, str) else [abre(n) for n in v] for c, v in nomes.items()}
-        try:     # P20: os mesmos quadros em cinza = gravando MUDO (silêncio digital > 20 s) ou pausado
-            cinza = lambda n: olho_cinza(os.path.join(ICONES, n), k, self.root)          # noqa: E731
-            self.olho_cinza = {c: cinza(v) if isinstance(v, str) else [cinza(n) for n in v] for c, v in nomes.items()}
+        try:
+            self.olho_cinza = {c: abre(v, True) if isinstance(v, str) else [abre(n, True) for n in v] for c, v in nomes.items()}
         except Exception as e:
             log("olho cinza: %r" % e); self.olho_cinza = olho_
         return olho_
@@ -2811,243 +2747,69 @@ class Tela:
                     for p in self.k.prem_pedacos if p.get("n") is not None]
         return []
 
-    def _letreiro(self):
-        """(texto grande, texto pequeno, cor): a dica do botão debaixo do mouse, ou o estado. O «gravando» é o Sharingan girando
-        (12/11 16h, ele: «substitui a bolinha vermelha de rec pelo olho do Kakashi girando»)"""
-        if self.escolha and not self.quem:          # na escolha o letreiro é a pergunta (as dicas não cabem ali)
-            return "Como eu leio?", "", COR["texto"]
+    # ---- o desenho da barra: visual.py (12/11 ~16h50, ele: «esses ícones... não é pique iPhone... tá meio serrilhada»)
+    def _estado_barra(self):
+        """o que a barra mostra agora, no formato do visual.barra"""
+        d = self.desenho
         z = self.hover
-        dica = next((dc for _, _, zz, dc in self._dicas if zz == z), None) if z is not None else None
-        if dica:
-            return dica, "", COR["texto2"]
+        dica = next((dc for _, _, zz, dc in self._dicas if zz == z), None) if (z is not None and self.quem) else None
+        e = {"modo": "grav" if self.quem else "escolha", "hover": z, "dica": dica, "desenho": d is not None,
+             "flash": time.time() < getattr(self, "flash_ate", 0) and int(time.time() * 4) % 2 == 0}
         if self.quem:
             s = int(time.time() - self.desde) if self.desde else 0
-            tempo = "%d:%02d" % (s // 60, s % 60)
-            nome = {"pc": "PC", "app_pessoal": "AppPessoal", "premiere": "Premiere"}.get(self.quem, "")
-            if self.mudo:            # P20: gravação muda há > 20 s: «Sem som» piscando (vermelho / apagado a cada 0,5 s)
-                return "Sem som " + tempo, "", (COR["vermelho"] if int(time.time() * 2) % 2 == 0 else COR["texto3"])
-            if self.pausado:
-                return tempo, nome + " · pausado", COR["amarelo"]
-            amarelo = self.pisca and int(time.time() * 2) % 2 == 0      # 10 min sem voz
-            return tempo, nome, (COR["amarelo"] if amarelo else COR["texto"])
-        if self.escolha:
-            return "Como eu leio?", "", COR["texto"]
-        return (self.aviso or "")[:40], "", COR["amarelo"]
+            e.update(tempo="%d:%02d" % (s // 60, s % 60), quem={"pc": "PC", "app_pessoal": "AppPessoal", "premiere": "Premiere"}.get(self.quem, ""),
+                     pausado=self.pausado, mudo=self.mudo, pedacos=self._pedacos()[-12:],
+                     ferr=d.ferr if d is not None else None, cor=d.cor if d is not None else 0)
+        else:
+            e["fila"] = (self.escolha or {}).get("fila", 1)
+        return e
 
-    def _itens(self):
-        """[(largura, zona, dica, função de desenho(cv, x0, x1))] da esquerda pra direita"""
-        it = []
-        sep = lambda w: it.append((w, None, None, None))                                # noqa: E731
-        risco = lambda: it.append((int(13 * F), None, None, self._d_risco))              # noqa: E731
-        it.append((int(14 * F), "alca", "Arraste a barra", self._d_alca))
-        if self.quem:
-            it.append((BH, "olho", "Concluir", self._d_olho))
-            it.append((self.w_txt, None, None, self._d_letreiro))
-            if self.quem in ("pc", "premiere"):
-                it.append((CEL + int(2 * F), "pausa", "Continuar" if self.pausado else "Pausar",
-                           lambda cv, a, b: self._d_redondo(cv, a, b, "play" if self.pausado else "pausa", fundo=COR["seg"])))
-                ps = self._pedacos()[-12:]
-                if ps:
-                    sep(int(4 * F))
-                    w1 = int(21 * F)
-                    def segs(cv, a, b, ps=ps, w1=w1):
-                        self._capsula(cv, a, MARGEM, b, BH - MARGEM, int(8 * F), COR["seg"])
-                        for i, (n, est) in enumerate(ps):
-                            self._d_pedaco(cv, a + int(3 * F) + i * w1, a + int(3 * F) + (i + 1) * w1, n, est)
-                    it.append((len(ps) * w1 + int(6 * F), None, None, segs))
-                    # as zonas de clique de cada pedaço (por cima do mesmo lugar: largura zero na fila, só a zona)
-                    base = sum(w for w, _, _, _ in it) - (len(ps) * w1 + int(6 * F)) + int(3 * F)
-                    self._zonas_ped = [(base + i * w1, base + (i + 1) * w1, ("ped", n),
-                                        "Pedaço %d: %s" % (n, {"gravando": "gravando", "vale": "apagar", "apagado": "voltar"}[est]))
-                                       for i, (n, est) in enumerate(ps)]
-                else:
-                    self._zonas_ped = []
-            else:
-                self._zonas_ped = []
-            if self.desenho is not None:
-                risco()
-                for nome, dica in FERRAMENTAS:
-                    it.append((CEL, ("ferr", nome), dica, lambda cv, a, b, nome=nome: self._d_ferr(cv, a, b, nome)))
-                sep(int(4 * F))
-                for i, (nome, _) in enumerate(CORES_DESENHO):
-                    it.append((int(18 * F), ("cor", i), nome.capitalize(), lambda cv, a, b, i=i: self._d_cor(cv, a, b, i)))
-                sep(int(4 * F))
-                it.append((CEL, "desfazer", "Desfazer o último", lambda cv, a, b: self._d_redondo(cv, a, b, "desfazer")))
-                it.append((CEL, "limpar", "Limpar os desenhos", lambda cv, a, b: self._d_redondo(cv, a, b, "limpar")))
-            risco()
-            it.append((self.f_bold.measure("Concluir") + int(30 * F), "concluir", "Concluir (= o atalho)", self._d_concluir))
-            it.append((CEL, "cancelar", "Cancelar tudo", lambda cv, a, b: self._d_redondo(cv, a, b, "cancelar", COR["texto2"])))
-        elif self.escolha:
-            self._zonas_ped = []
-            sep(int(4 * F))
-            it.append((self.f_bold.measure("Como eu leio?") + int(18 * F), None, None, self._d_letreiro))
-            wr, wp = self.f_bold.measure("Rápido") + int(30 * F), self.f_bold.measure("Profundo") + int(30 * F)
-            it.append((int(4 * F), None, None, lambda cv, a, b, w=wr + wp: self._capsula(cv, a, MARGEM, a + w + int(8 * F), BH - MARGEM,
-                                                                                       int(10 * F), COR["seg"])))
-            it.append((wr, "rapido", "Coisa rápida", lambda cv, a, b: self._d_segmento(cv, a, b, "Rápido", True)))
-            it.append((wp, "profundo", "Análise profunda", lambda cv, a, b: self._d_segmento(cv, a, b, "Profundo", False)))
-            it.append((int(4 * F), None, None, None))
-            fila = self.escolha.get("fila", 1)
-            if fila > 1:
-                txt = "+%d" % (fila - 1)
-                it.append((self.f_txt.measure(txt) + int(16 * F), None, None,
-                           lambda cv, a, b, t=txt: cv.create_text((a + b) // 2, BH // 2, text=t, fill=COR["texto2"], font=self.f_txt)))
-            else:
-                sep(int(4 * F))
-            it.append((CEL + int(2 * F), "descartar", "Descartar esta",
-                       lambda cv, a, b: self._d_redondo(cv, a, b, "cancelar", COR["texto2"], fundo=COR["seg"])))
-        it.append((int(8 * F), None, None, None))
-        return it
-
-    def _glifo(self, nome):
-        return (ICONE if self.tem_icones else ICONE_TXT)[nome]
-
-    def _zona_em(self, x):
-        z = next((z for x0, x1, z, _ in getattr(self, "_zonas_ped", []) if x0 <= x < x1), None)
-        return z if z is not None else next((z for x0, x1, z in self.zonas if x0 <= x < x1), None)
-
-    def _assinatura(self, itens, W):
-        """tudo que aparece na barra, menos o quadro do Sharingan: igual = não redesenha (só troca a imagem do olho)"""
-        d = self.desenho
-        return (W, tuple(z for _, z, _, _ in itens), self.hover, self._letreiro(), self.pausado, self.mudo, self._borda(),
-                (d.ferr, d.cor) if d is not None else None, tuple(self._pedacos()), self.pisca and int(time.time() * 2) % 2 == 0)
-
-    def _borda(self):
-        """a cor da borda da barra: branca piscando nos 2 s depois de começar (pra ele ver que o atalho pegou); depois, cinza visível
-        em cima de site escuro (#48484A; o #2C2C2E sumia no Fly X-tudo)"""
-        if time.time() < getattr(self, "flash_ate", 0) and int(time.time() * 4) % 2 == 0:
-            return COR["texto"]
-        return "#48484A"
+    def _para_tk(self, im):
+        """a imagem lisa (RGBA) → o que o Tk mostra: no Windows, o fora da barra vira a cor-chave transparente e a borda redonda
+        se mistura com o grafite (sem franja escura)"""
+        from PIL import Image, ImageTk
+        if MAC:
+            return ImageTk.PhotoImage(im, master=self.root)
+        fundo = Image.new("RGBA", im.size, (0x1C, 0x1C, 0x1E, 255))
+        rgb = Image.alpha_composite(fundo, im).convert("RGB")
+        mascara = im.getchannel("A").point(lambda v: 255 if v >= 110 else 0)
+        chave = Image.new("RGB", im.size, (1, 2, 3))
+        return ImageTk.PhotoImage(Image.composite(rgb, chave, mascara), master=self.root)
 
     def _desenhar(self):
-        itens = self._itens()
-        W = sum(w for w, _, _, _ in itens)
-        if W != self.W:
-            self.W = W; self.cv.configure(width=W); self._geo()
-        ass = self._assinatura(itens, W)
-        if ass == getattr(self, "_ass", None):      # nada mudou: só o Sharingan anda (antes refazia a barra inteira a cada 50 ms)
+        e = self._estado_barra()
+        ass = repr(sorted(e.items(), key=lambda kv: kv[0]))
+        if ass == getattr(self, "_ass", None):      # nada mudou: só o Sharingan anda
             if getattr(self, "_id_olho", None) is not None:
                 self.cv.itemconfigure(self._id_olho, image=self._img_olho())
             return
         self._ass = ass
-        cv = self.cv; cv.delete("all"); self.zonas = []; self._id_olho = None
-        self._dicas = [(x0, x1, z, dc) for x0, x1, z, dc in getattr(self, "_zonas_ped", [])]
-        borda = self._borda()
-        if borda == COR["texto"]:                   # piscando ao começar: borda de 2 px
-            self._capsula(cv, 0, 0, W - 1, BH - 1, int(11 * F), borda)
-            self._capsula(cv, 2, 2, W - 3, BH - 3, int(11 * F) - 2, COR["fundo"])
-        else:
-            self._capsula(cv, 0, 0, W - 1, BH - 1, int(11 * F), COR["fundo"], borda)
-        x = 0
-        for w, zona, dica, f in itens:
-            self._z = zona
-            if f is not None:
-                f(cv, x, x + w)
-            if zona is not None:
-                self.zonas.append((x, x + w, zona))
-                if dica:
-                    self._dicas.append((x, x + w, zona, dica))
-            x += w
+        im, zonas, ox, _ = visual.barra(e, self.F)
+        self._img_barra = self._para_tk(im)
+        if (im.width, im.height) != (self.W, self.H):
+            self.W, self.H = im.width, im.height
+            self.cv.configure(width=self.W, height=self.H); self._geo()
+        cv = self.cv; cv.delete("all")
+        cv.create_image(0, 0, image=self._img_barra, anchor="nw")
+        self.zonas = [(x0, x1, z) for x0, x1, z, _ in zonas]
+        self._dicas = [(x0, x1, z, dc) for x0, x1, z, dc in zonas if dc]
+        self._id_olho = cv.create_image(ox, self.H // 2, image=self._img_olho()) if ox is not None else None
 
-    # peças
-    @staticmethod
-    def _capsula(cv, x0, y0, x1, y1, r, fill, outline=""):
-        """retângulo de cantos redondos: 4 círculos + 2 retângulos (o polígono «smooth» do Tk afundava a borda e vazava o fundo);
-        a borda = a mesma forma 1 px maior por baixo"""
-        def forma(x0, y0, x1, y1, r, cor):
-            if not cor:
-                return
-            d = 2 * r
-            for cx, cy in ((x0, y0), (x1 - d, y0), (x0, y1 - d), (x1 - d, y1 - d)):
-                cv.create_oval(cx, cy, cx + d, cy + d, fill=cor, outline=cor)
-            cv.create_rectangle(x0 + r, y0, x1 - r, y1, fill=cor, outline=cor)
-            cv.create_rectangle(x0, y0 + r, x1, y1 - r, fill=cor, outline=cor)
-        r = max(1, min(r, (y1 - y0) // 2, (x1 - x0) // 2))
-        if outline:
-            forma(x0, y0, x1, y1, r, outline)
-            if fill:
-                forma(x0 + 1, y0 + 1, x1 - 1, y1 - 1, max(1, r - 1), fill)
-        else:
-            forma(x0, y0, x1, y1, r, fill)
+    def _zona_em(self, x):
+        return next((z for x0, x1, z in self.zonas if x0 <= x < x1), None)     # os pedaços vêm antes do bloco deles
 
-    def _d_alca(self, cv, a, b):
-        cx, cy, p = (a + b) // 2 + int(2 * F), BH // 2, max(1, int(1.3 * F))
-        for dy in (-4, 0, 4):
-            for dx in (-2, 2):
-                x, y = cx + int(dx * F), cy + int(dy * F)
-                cv.create_oval(x - p, y - p, x + p, y + p, fill="#48484A", outline="")
-
-    def _d_olho(self, cv, a, b):
-        self._id_olho = cv.create_image((a + b) // 2, BH // 2, image=self._img_olho())
-
-    def _d_letreiro(self, cv, a, b):
-        grande, pequeno, cor = self._letreiro()
-        x = a + int(6 * F)
-        if grande:
-            cv.create_text(x, BH // 2, text=grande, fill=cor, font=self.f_bold if self.quem or self.escolha else self.f_txt, anchor="w")
-        if pequeno:
-            cv.create_text(x + self.f_bold.measure(grande) + int(8 * F), BH // 2, text=pequeno, fill=COR["texto2"], font=self.f_txt,
-                           anchor="w")
-
-    def _d_risco(self, cv, a, b):
-        cx = (a + b) // 2
-        cv.create_line(cx, int(BH * 0.3), cx, int(BH * 0.7), fill="#38383A", width=max(1, int(F)))
-
-    def _circulo(self, cv, cx, cor):
-        r = (BH - 2 * MARGEM) // 2
-        cv.create_oval(cx - r, BH // 2 - r, cx + r, BH // 2 + r, fill=cor, outline=cor)
-
-    def _d_redondo(self, cv, a, b, ico, cor=None, fundo=None, ativo=False):
-        """botão redondo (pin 1): fundo cinza (ou nada), branco quando é a ferramenta escolhida"""
-        cx = (a + b) // 2
-        if ativo:
-            self._circulo(cv, cx, COR["texto"])
-        elif self.hover == self._z:
-            self._circulo(cv, cx, COR["ativo"] if fundo else COR["hover"])
-        elif fundo:
-            self._circulo(cv, cx, fundo)
-        c = COR["preto"] if ativo else (cor or COR["texto"])
-        cv.create_text(cx, BH // 2, text=self._glifo(ico), fill=c, font=self.f_ico,
-                       angle=-45 if (ico in ("seta", "linha") and self.tem_icones) else 0)
-
-    def _d_pedaco(self, cv, a, b, n, est):
-        """um pedaço dentro do segmentado (pin 3): o que grava fica destacado com o número vermelho; apagado = cinza riscado"""
-        z = ("ped", n)
-        if est == "gravando" or self.hover == z:
-            self._capsula(cv, a + 1, MARGEM + int(3 * F), b - 1, BH - MARGEM - int(3 * F), int(6 * F), COR["seg_sel"])
-        cor = {"gravando": COR["vermelho"], "vale": COR["texto"], "apagado": COR["texto3"]}[est]
-        cv.create_text((a + b) // 2, BH // 2, text=str(n), fill=cor, font=self.f_peq)
-        if est == "apagado":
-            cv.create_line(a + int(5 * F), BH // 2, b - int(5 * F), BH // 2, fill=COR["texto3"], width=max(1, int(F)))
-
-    def _d_ferr(self, cv, a, b, nome):
-        d = self.desenho
-        ativo = d is not None and d.ferr == nome
-        cor = COR["vermelho"] if nome == "laser" else COR["texto"]
-        self._d_redondo(cv, a, b, nome, cor, ativo=ativo)
-
-    def _d_cor(self, cv, a, b, i):
-        d = self.desenho
-        cx, cy, r = (a + b) // 2, BH // 2, max(4, int(5 * F))
-        rr = r + max(3, int(3 * F))
-        if d is not None and d.cor == i:
-            cv.create_oval(cx - rr, cy - rr, cx + rr, cy + rr, outline=COR["texto"], width=max(1, int(1.5 * F)))
-        elif self.hover == self._z:
-            cv.create_oval(cx - rr, cy - rr, cx + rr, cy + rr, outline=COR["texto3"], width=max(1, int(F)))
-        cv.create_oval(cx - r, cy - r, cx + r, cy + r, fill=CORES_DESENHO[i][1], outline="")
-
-    def _d_concluir(self, cv, a, b):
-        """«Concluir» em pílula branca (pin 1)"""
-        y0, y1 = MARGEM, BH - MARGEM
-        self._capsula(cv, a + int(2 * F), y0, b - int(2 * F), y1, (y1 - y0) // 2, "#E5E5EA" if self.hover == self._z else COR["texto"])
-        cv.create_text((a + b) // 2, BH // 2, text="Concluir", fill=COR["preto"], font=self.f_bold)
-
-    def _d_segmento(self, cv, a, b, txt, principal):
-        """uma opção do segmentado da escolha (pin 3): a principal (Rápido) fica destacada; a outra acende com o mouse"""
-        if principal or self.hover == self._z:
-            self._capsula(cv, a + int(1 * F), MARGEM + int(3 * F), b - int(1 * F), BH - MARGEM - int(3 * F), int(7 * F), COR["seg_sel"])
-        cv.create_text((a + b) // 2, BH // 2, text=txt, fill=COR["texto"] if (principal or self.hover == self._z) else "#C7C7CC",
-                       font=self.f_bold)
+    def mudar_escala(self, passo):
+        """− / + da janelinha: o tamanho da barra (config.json "barra_escala", 0,6–2,0), na hora"""
+        c = cfg()
+        try:
+            atual = float(c.get("barra_escala", 1.0))
+        except (TypeError, ValueError):
+            atual = 1.0
+        novo = round(max(0.6, min(2.0, atual + passo)), 2)
+        c["barra_escala"] = novo; salvar_cfg(c)
+        self.F = ESC * novo
+        self.olho = self._carregar_olho(); self._ass = None
+        return novo
 
 
 FLAG_PAINEL = os.path.join(AQUI, "abrir_painel.flag")
@@ -3100,28 +2862,21 @@ def descartar(g):
 
 
 class Painel:
-    """Janelinha do KAKASHI em 8 bits — mesma estética do painel do Premiere (CORRETOR\\painel\\index.html: fundo #0b0b0e, canto
-    reto, borda grossa com relevo claro em cima/esquerda e escuro embaixo/direita, fonte pixel 5x7 em caixa alta, título titulo.png,
-    relógio d_*.png). 19/10, ele: "o Kakashi todo é pra tá na estética do plugin do Premiere, todo 8 bits... Esse nome aqui".
-    Não pisca: a lista só é refeita quando muda."""
-    FUNDO = "#0b0b0e"
-    EST = {   # (fundo, claro, escuro, cor da letra)
-        "vermelho": ("#d6001c", "#ff6a6a", "#5e000c", "branco"),
-        "concluir": ("#15151a", "#34343e", "#050507", "vermelho"),
-        "neutro":   ("#2a2a33", "#4a4a56", "#0a0a0d", "amarelo"),
-        "mini":     ("#15151a", "#34343e", "#050507", "branco"),
-        "perigo":   ("#2a0006", "#6a0a16", "#0a0002", "vermelho"),
-        "off":      ("#1a1a20", "#24242b", "#0a0a0d", "apagado"),
-    }
+    """A JANELINHA do KAKASHI (atalho KAKASHI na área de trabalho / botão direito na barra → «Abrir o painel»).
+    3.0 (12/11/2026, ele: «atualiza o próprio Kakashi... o painel dele, pensa no que você tem que otimizar, o que tem que ter de botão
+    novo ali, de controle... é fazer em tudo agora» → prévia v2 → «Aplica tudo»): o GRAFITE desenhado pelo visual.painel (liso, sem
+    serrilhado), na hierarquia da regra dele de tela de ferramenta: o estado em cima (Sharingan, tempo, microfone e o NÍVEL da voz
+    gravando) → a ação principal sozinha (Gravar | Pausar + Concluir) → pedaços e Cancelar → as GRAVADAS (modo, ✓ lida, e Rápido /
+    Profundo nas que ficaram sem modo) → os ajustes (atalho, barra no canto, − / + tamanho da barra, pasta, fechar).
+    Descartar não pergunta: vai pro _descartadas, avisa e o Ctrl+Z volta (regra dele: sem caixa de «tem certeza?»).
+    Era 8 bits (19/10, «o Kakashi todo é pra tá na estética do plugin do Premiere») — MUDOU em 12/11 com a barra."""
 
     def __init__(self, tela):
-        import pixel
-        from PIL import Image, ImageTk
-        self.px, self.Image, self.ImageTk = pixel, Image, ImageTk
-        self.tela = tela; self.cache = {}
-        self.win = tk.Toplevel(tela.root); self.win.title("KAKASHI"); self.win.configure(bg=self.FUNDO)
+        from PIL import ImageTk
+        self.ImageTk = ImageTk
+        self.tela, self.k = tela, tela.k
+        self.win = tk.Toplevel(tela.root); self.win.title("KAKASHI"); self.win.configure(bg=visual.COR["janela"])
         self.win.resizable(False, False)
-        self.win.geometry("+%d+%d" % (tela.root.winfo_screenwidth() // 2 - 300, tela.root.winfo_screenheight() // 2 - 330))
         self.win.attributes("-topmost", True)
         try:
             self.win.iconphoto(False, tk.PhotoImage(file=os.path.join(ICONES, "icone_48.png")))
@@ -3135,126 +2890,255 @@ class Painel:
             ctypes.windll.dwmapi.DwmSetWindowAttribute(hw, 20, ctypes.byref(v), ctypes.sizeof(v))
         except Exception:
             pass
-        self.olho_g = {"olho": tk.PhotoImage(file=os.path.join(ICONES, "olho.png")).subsample(2),
-                       "giro": [tk.PhotoImage(file=os.path.join(ICONES, "giro_%02d.png" % i)).subsample(2) for i in range(12)]}
-        app = tk.Frame(self.win, bg=self.FUNDO); app.pack(padx=12, pady=(12, 14))
-        topo = tk.Frame(app, bg=self.FUNDO); topo.pack(fill="x", pady=(0, 12))
-        self.lb_olho = tk.Label(topo, bg=self.FUNDO, image=self.olho_g["olho"], bd=0); self.lb_olho.pack(side="left", padx=(0, 10))
-        marca = tk.Frame(topo, bg=self.FUNDO); marca.pack(side="left", fill="x")
-        self.img_tit = tk.PhotoImage(file=os.path.join(ICONES, "titulo.png"))
-        tk.Label(marca, image=self.img_tit, bg=self.FUNDO, bd=0).pack(anchor="w")
-        self.lb_sub = tk.Label(marca, bg=self.FUNDO, bd=0); self.lb_sub.pack(anchor="w", pady=(4, 0))
-        self._texto(self.lb_sub, atalho.legenda(cfg()), "vermelho")
-        # relógio + status (igual ao painel)
-        self.lb_crono = tk.Label(app, bg=self.FUNDO, bd=0); self.lb_crono.pack(pady=(2, 0))
-        lin = tk.Frame(app, bg=self.FUNDO); lin.pack(pady=(6, 0))
-        self.ponto = tk.Frame(lin, width=8, height=8, bg="#5b5b63"); self.ponto.pack(side="left", padx=(0, 8))
-        self.lb_status = tk.Label(lin, bg=self.FUNDO, bd=0); self.lb_status.pack(side="left")
-        # 03/11 (ele: «coloca o Kakashi aqui com os mesmos controles do Premiere... Pausar, aí excluir a parte»): o mesmo do painel do
-        # Premiere — TRILHO com os pedaços (clique seleciona; APAGAR N / VOLTAR N), o botão grande PAUSAR/CONTINUAR, CONCLUIR e CANCELAR
-        lt = tk.Frame(app, bg=self.FUNDO); lt.pack(fill="x", pady=(10, 0))
-        self.trilho = tk.Canvas(lt, width=392, height=26, bg=self.FUNDO, highlightthickness=0, bd=0, cursor="hand2")
-        self.trilho.pack(side="left"); self.trilho.bind("<Button-1>", self._clicou_trilho)
-        self.bt_ped = self._botao(lt, 120, 26, self._acao_pedaco); self.bt_ped.pack(side="right")
-        self.ped_sel = None; self.ult_trilho = 0
-        self.bt_grav = self._botao(app, 520, 44, self._principal); self.bt_grav.pack(pady=(8, 0))
-        lc = tk.Frame(app, bg=self.FUNDO); lc.pack(fill="x", pady=(6, 0))
-        self.bt_conc = self._botao(lc, 386, 30, lambda: self.tela._acao(False)); self.bt_conc.pack(side="left")
-        self.bt_canc = self._botao(lc, 128, 30, lambda: self.tela._acao(True)); self.bt_canc.pack(side="right")
-        # gravações
-        self.lb_tit_lista = tk.Label(app, bg=self.FUNDO, bd=0); self.lb_tit_lista.pack(anchor="w", pady=(16, 6))
-        self._texto(self.lb_tit_lista, "GRAVADAS", "amarelo", 3)
-        self.lista = tk.Frame(app, bg=self.FUNDO); self.lista.pack(fill="x")
-        pe = tk.Frame(app, bg=self.FUNDO); pe.pack(fill="x", pady=(12, 0))
-        b1 = self._botao(pe, 256, 30, lambda: os.startfile(SESSOES)); b1.pack(side="left")
-        self._pintar(b1, "mini", "ABRIR A PASTA DO PC")
-        b2 = self._botao(pe, 256, 30, tela._sair); b2.pack(side="right")
-        self._pintar(b2, "perigo", "FECHAR O KAKASHI")
-        pe2 = tk.Frame(app, bg=self.FUNDO); pe2.pack(fill="x", pady=(6, 0))     # pacote da Fly: trocar o atalho
-        self.bt_atalho = self._botao(pe2, 520, 30, self.trocar_atalho); self.bt_atalho.pack()
-        self._pintar(self.bt_atalho, "mini", "TROCAR O ATALHO")
-        pe3 = tk.Frame(app, bg=self.FUNDO); pe3.pack(fill="x", pady=(6, 0))     # pacote da Fly: atualização
-        self.bt_atual = self._botao(pe3, 520, 30, self.atualizacao); self.bt_atual.pack()
-        self._nova_pintada = "?"; self._pintar_atual()
-        self.giro_i = 0; self.ult_giro = 0; self.ult_lista = 0; self.assinatura = None; self.estado_bt = None
+        self.cv = tk.Canvas(self.win, width=420, height=600, bg=visual.COR["janela"], highlightthickness=0, bd=0)
+        self.cv.pack()
+        self.cv.bind("<Motion>", self._mexeu); self.cv.bind("<Leave>", lambda e: self._hover(None))
+        self.cv.bind("<ButtonRelease-1>", self._clicou)
+        self.win.bind("<Control-z>", lambda e: self.desfazer()); self.win.bind("<Control-Z>", lambda e: self.desfazer())
+        self.zonas, self.hover, self.lista, self.desfeitos = [], None, [], []
+        self.aviso, self.aviso_ate = "", 0.0
+        self.ass, self.ult = None, 0.0
+        self.nivel, self.mic = None, ""
+        self.tamanho = None
+        self.win.geometry("+%d+%d" % (tela.root.winfo_screenwidth() // 2 - 210, tela.root.winfo_screenheight() // 2 - 330))
+        threading.Thread(target=self._achar_mic, daemon=True).start()
+        self.montar_lista(forcar=True)
+        self.tique()
+
+    # ---- o que pode mudar no pacote do time (atalho.py e atualizar.py entram aqui)
+    def legenda(self):
+        return atalho.legenda(cfg()).replace(" GRAVA", " grava").replace(" CANCELA", " cancela")   # pacote da Fly
+
+    def botoes_extra(self):
+        """[(zona, rótulo, ícone)] a mais no pé (o pacote do time põe TROCAR O ATALHO e ATUALIZAÇÃO)"""
+        if not hasattr(self, "rot_atalho"):           # pacote da Fly: trocar o atalho e a atualização
+            self.rot_atalho = "Trocar o atalho"; self._nova_pintada = "?"; self._pintar_atual()
+        return [("trocar_atalho", self.rot_atalho, "teclado"), ("atualizacao", self.rot_atual, "desfazer")]
+
+    def clique_extra(self, zona):
+        if zona == "trocar_atalho":
+            self.trocar_atalho(); return True
+        if zona == "atualizacao":
+            self.atualizacao(); return True
+        return False
+
+    # ---- dados
+    def _achar_mic(self):
+        try:
+            self.mic = microfone() or "sem microfone"
+        except Exception:
+            self.mic = "?"
+        self.ass = None
+
+    def avisar(self, txt, seg=4.0):
+        self.aviso, self.aviso_ate, self.ass = txt, time.time() + seg, None
+
+    def montar_lista(self, forcar=False):
+        """as últimas gravações (PC, app de cartões, Premiere) com o modo e se o Claude já leu"""
+        gs = gravacoes(8)
+        for g in gs:
+            try:
+                g["modo"] = json.load(open(os.path.join(g["pasta"], "MODO.json"), encoding="utf-8")).get("modo")
+            except (OSError, ValueError):
+                g["modo"] = None
+            g["lida"] = os.path.isfile(os.path.join(g["pasta"], "LIDA.json"))
+        self.lista = gs
+        self.ult_lista = time.time()
+        if forcar:
+            self.ass = None
+
+    def _nivel(self):
+        """0..1 do microfone gravando (os últimos 0,4 s do wav); parado = None (o microfone fica solto)"""
+        if not self.tela.quem or self.tela.pausado:
+            return None
+        arq = None
+        if self.k.pc is not None:
+            arq = self.k.pc.fala_wav()
+        elif getattr(self.k, "olho_prem", None) is not None:
+            arq = self.k.olho_prem.fala_wav()
+        elif self.k.voz_viva is not None:
+            arq = self.k.voz_viva.arq
+        try:
+            rms = olho.nivel_voz(arq) if arq else 0
+        except Exception:
+            rms = 0
+        if rms <= 0:
+            return 0.0
+        db = 20 * __import__("math").log10(max(1e-6, rms / 32768.0))
+        return max(0.0, min(1.0, (db + 60) / 54))
+
+    def _estado(self):
+        t = self.tela
+        grav = bool(t.quem)
+        s = int(time.time() - t.desde) if (grav and t.desde) else 0
+        quem = {"pc": "PC", "app_pessoal": "AppPessoal", "premiere": "Premiere"}.get(t.quem, "")
+        if not grav:
+            txt = "Pronto · nada gravando"
+        elif t.mudo:
+            txt = "Sem som há %d s · confira o microfone" % int(self.k.mudo or 0)
+        elif t.pausado:
+            txt = "Pausado · " + quem
+        else:
+            txt = "Gravando · " + quem
+        lista = []
+        for g in self.lista:
+            q = g["quando"]
+            q = "%s/%s %s" % (q[8:10], q[5:7], q[11:16]) if len(q) >= 16 else q
+            d = g["dur"]
+            lista.append({"quando": q, "tipo": g["tipo"], "dur": ("%d:%02d" % (int(d) // 60, int(d) % 60)) if d else "gravando",
+                          "modo": g["modo"], "lida": g["lida"], "extra": (g.get("extra") or "")[:22]})
+        try:
+            esc = float(cfg().get("barra_escala", 1.0))
+        except (TypeError, ValueError):
+            esc = 1.0
+        return {"quem": t.quem, "tempo": "%02d:%02d" % (s // 60 % 100, s % 60), "estado_txt": txt, "pausado": t.pausado,
+                "mudo": grav and t.mudo, "mic": self.mic, "nivel": self.nivel, "pedacos": t._pedacos() if grav else [],
+                "legenda": self.legenda(), "gravacoes": lista, "hover": self.hover,
+                "escala_barra": esc, "aviso": self.aviso if time.time() < self.aviso_ate else "", "extras": self.botoes_extra()}
+
+    # ---- desenho
+    def desenhar(self):
+        """a janelinha inteira só é redesenhada quando muda (o tempo muda 1×/s); o Sharingan gira e o medidor acende por cima,
+        como itens soltos do canvas (sem refazer a imagem)"""
+        e = self._estado()
+        nivel = e["nivel"]
+        e["nivel"] = 0.0 if nivel is not None else None          # o desenho só leva o trilho apagado
+        ass = repr(sorted(((k, v) for k, v in e.items()), key=lambda kv: kv[0]))
+        if ass != self.ass:
+            self.ass = ass
+            im, zonas, extra = visual.painel(e)
+            self._img = self.ImageTk.PhotoImage(im.convert("RGB"), master=self.win)
+            if self.tamanho != im.size:
+                self.tamanho = im.size
+                self.cv.configure(width=im.width, height=im.height)
+            self.cv.delete("all"); self.cv.create_image(0, 0, image=self._img, anchor="nw")
+            self.zonas = zonas
+            ox, oy, self.opx = extra["olho"]
+            self._id_olho = self.cv.create_image(int(ox), int(oy), anchor="nw")
+            self._medidor = [self.cv.create_rectangle(*r, fill="#3A3A3C", outline="") for r in extra["medidor"]]
+            self._olho_atual = None
+        # o Sharingan (mesmo relógio do giro da barra) e o medidor
+        nome = ("giro_%02d.png" % (int(time.time() / 0.09) % 12)) if (self.tela.quem and not self.tela.pausado) else "olho.png"
+        chave = (nome, bool(e["mudo"]))
+        if chave != getattr(self, "_olho_atual", None):
+            self._olho_atual = chave
+            if not hasattr(self, "_olhos"):
+                self._olhos = {}
+            if chave not in self._olhos:
+                self._olhos[chave] = self.ImageTk.PhotoImage(visual.olho(ICONES, nome, self.opx, cinza=chave[1]), master=self.win)
+            self.cv.itemconfigure(self._id_olho, image=self._olhos[chave])
+        acesos = int(round((nivel or 0) * 10))
+        for i, r in enumerate(getattr(self, "_medidor", [])):
+            cor = ("#30D158" if i < 7 else ("#FFD60A" if i < 9 else "#FF453A")) if i < acesos else "#3A3A3C"
+            self.cv.itemconfigure(r, fill=cor)
+
+    def _zona(self, x, y):
+        return next(((z, dc) for x0, y0, x1, y1, z, dc in self.zonas if x0 <= x < x1 and y0 <= y < y1), (None, None))
+
+    def _hover(self, z):
+        if z != self.hover:
+            self.hover = z; self.ass = None
+
+    def _mexeu(self, e):
+        z, dc = self._zona(e.x, e.y)
+        self._hover(z)
+        self.cv.configure(cursor="hand2" if z is not None else "arrow")
+
+    # ---- cliques
+    def _clicou(self, e):
+        z, _ = self._zona(e.x, e.y)
+        if z is None:
+            return
+        t = self.tela
+        if z == "principal":
+            if t.quem in ("pc", "premiere"):
+                t._pausa()
+            elif not t.quem:
+                t._acao(False)
+            else:
+                t._acao(False)
+        elif z == "concluir":
+            t._acao(False)
+        elif z == "cancelar":
+            t._acao(True)
+        elif isinstance(z, tuple) and z[0] == "ped":
+            threading.Thread(target=lambda: (self.k.alternar_pedaco(z[1]), t._forcar()), daemon=True).start()
+        elif isinstance(z, tuple) and z[0] in ("rapido", "profundo") and z[1] < len(self.lista):
+            self._modo(self.lista[z[1]], z[0])
+        elif isinstance(z, tuple) and z[0] == "abrir" and z[1] < len(self.lista):
+            os.startfile(self.lista[z[1]]["pasta"])
+        elif isinstance(z, tuple) and z[0] == "descartar" and z[1] < len(self.lista):
+            self._descartar(self.lista[z[1]])
+        elif z == "canto":
+            t._centralizar(); self.avisar("A barra volta pro canto do olho")
+        elif z in ("barra_menor", "barra_maior"):
+            novo = t.mudar_escala(-0.1 if z == "barra_menor" else 0.1); self.avisar("Barra em %d%%" % int(round(novo * 100)), 2.5)
+        elif z == "pasta":
+            os.startfile(SESSOES)
+        elif z == "fechar":
+            t._sair()
+        else:
+            self.clique_extra(z)
+        t._forcar(); self.ass = None
+
+    def _modo(self, g, modo):
+        """a gravação ficou sem modo: grava o MODO.json e copia o /kakashi pra ele colar no Claude (daqui não dá pra colar: a frente
+        é a janelinha)"""
+        d = {"modo": modo, "escolhido_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "quem": "janelinha",
+             "pastas": [g["pasta"]]}
+        try:
+            json.dump(d, open(os.path.join(g["pasta"], "MODO.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+        except OSError as ex:
+            self.avisar("Não gravou o modo: %s" % ex); return
+        texto = "/kakashi " + ("rápido" if modo == "rapido" else "profundo")
+        threading.Thread(target=colar_kakashi, args=(False, texto), daemon=True).start()
+        log("janelinha: %s → %s (copiado)" % (os.path.basename(g["pasta"]), modo.upper()))
+        self.avisar("%s · «%s» copiado: cole no Claude" % ("Rápido" if modo == "rapido" else "Profundo", texto))
         self.montar_lista(forcar=True)
 
-    # ---- peças 8 bits
-    def _img(self, txt, cor, E=2):
-        k = (txt, cor, E)
-        if k not in self.cache:
-            self.cache[k] = self.ImageTk.PhotoImage(self.px.render(txt, E, cor), master=self.win)
-        return self.cache[k]
-
-    def _texto(self, label, txt, cor, E=2):
-        label.configure(image=self._img(txt, cor, E))
-
-    def _botao(self, pai, w, h, cmd):
-        cv = tk.Canvas(pai, width=w, height=h, bg=self.FUNDO, highlightthickness=0, bd=0, cursor="hand2")
-        cv._cmd = cmd; cv._est = None
-        cv.bind("<Button-1>", lambda e: cv._cmd() if cv._est != "off" else None)
-        return cv
-
-    def _pintar(self, cv, est, txt, E=2):
-        chave = (est, txt, E)
-        if getattr(cv, "_chave", None) == chave:
-            return
-        cv._chave = chave; cv._est = est
-        w, h = int(cv["width"]), int(cv["height"]); b = 4 if h >= 40 else 3
-        f, cl, es, cor = self.EST[est]
-        cv.delete("all")
-        cv.create_rectangle(0, 0, w, h, fill=f, outline="")
-        cv.create_rectangle(0, 0, w, b, fill=cl, outline=""); cv.create_rectangle(0, 0, b, h, fill=cl, outline="")
-        cv.create_rectangle(0, h - b, w, h, fill=es, outline=""); cv.create_rectangle(w - b, 0, w, h, fill=es, outline="")
-        cv.create_image(w // 2, h // 2 + 1, image=self._img(txt, cor, E))
-        cv.configure(cursor="arrow" if est == "off" else "hand2")
-
-    def _principal(self):
-        """parado = INICIAR; gravando no PC ou no Premiere = PAUSAR/CONTINUAR (04/11: o Premiere também, sem abrir o painel); AppPessoal = CONCLUIR"""
-        if self.tela.quem in ("pc", "premiere"):
-            self.tela._pausa()
+    def _descartar(self, g):
+        if g["dur"] is None or (self.k.pc is not None and os.path.normcase(self.k.pc.pasta) == os.path.normcase(g["pasta"])):
+            self.avisar("Essa ainda está gravando: cancele pela barra"); return
+        nome = os.path.basename(g["pasta"])
+        if descartar(g):
+            self.desfeitos.append((os.path.join(g["base"], "_descartadas", nome), g["pasta"]))
+            self.avisar("Descartada · Ctrl+Z volta", 6)
         else:
-            self.tela._acao(False)
+            self.avisar("Não consegui mover (alguém está usando a pasta?)")
+        self.montar_lista(forcar=True)
 
-    def _pedacos(self):
-        g = self.tela.k.pc
-        return list(g.pedacos) if g is not None else []
+    def desfazer(self):
+        """Ctrl+Z: a última descartada volta pro lugar (e o sessao.json perde a marca)"""
+        if not self.desfeitos:
+            self.avisar("Nada pra desfazer", 2); return
+        de, para = self.desfeitos.pop()
+        try:
+            shutil.move(de, para)
+            arq = os.path.join(para, "sessao.json")
+            m = json.load(open(arq, encoding="utf-8")); m.pop("descartada", None); m.pop("descartada_em", None)
+            json.dump(m, open(arq, "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+            self.avisar("Voltou: " + os.path.basename(para))
+            log("janelinha: Ctrl+Z, %s voltou do _descartadas" % os.path.basename(para))
+        except (OSError, ValueError) as ex:
+            self.avisar("Não voltou: %s" % ex)
+        self.montar_lista(forcar=True)
 
-    def _clicou_trilho(self, e):
-        for x0, x1, p in getattr(self, "_blocos", []):
-            if x0 <= e.x <= x1:
-                if p["dur"] is None:            # o que está gravando não se apaga (pausa antes)
-                    return
-                self.ped_sel = None if self.ped_sel == p["n"] else p["n"]; self.ult_trilho = 0; return
-
-    def _acao_pedaco(self):
-        g = self.tela.k.pc
-        if g is not None and self.ped_sel is not None:
-            g.alternar_pedaco(self.ped_sel); self.ult_trilho = 0
-
-    def _desenhar_trilho(self):
-        cv = self.trilho; cv.delete("all")
-        ps = self._pedacos(); w, h = int(cv["width"]), int(cv["height"])
-        self._blocos = desenhar_trilho(cv, 0, 0, w, h, ps, self.ped_sel)
-        if not ps:
-            self._pintar(self.bt_ped, "off", "APAGAR"); return
-        sel = next((p for p in ps if p["n"] == self.ped_sel), None)
-        if sel is None:
-            self.ped_sel = None; self._pintar(self.bt_ped, "off", "APAGAR")
-        else:
-            self._pintar(self.bt_ped, "mini" if sel["apagado"] else "perigo", ("VOLTAR %d" if sel["apagado"] else "APAGAR %d") % sel["n"])
-
+    # ---- vida
     def trocar_atalho(self):
         """pacote da Fly (27/10): aperta o botão, aperta o atalho novo (Esc cancela); grava no config.json e vale na hora."""
         if self.tela.quem:
-            self._pintar(self.bt_atalho, "mini", "CONCLUA A GRAVACAO ANTES")
-            self.win.after(2500, lambda: self.vivo() and self._pintar(self.bt_atalho, "mini", "TROCAR O ATALHO")); return
+            self._rot_atalho("Conclua a gravação antes", 2.5); return
         if getattr(self, "_capturando", False):
             return
         self._capturando = True; self._cap_r = None
         atalho.soltar()                       # o atalho de agora não dispara enquanto a pessoa aperta o novo
-        self._pintar(self.bt_atalho, "neutro", "APERTE O ATALHO NOVO · ESC CANCELA")
+        self._rot_atalho("Aperte o atalho novo · Esc cancela")
         threading.Thread(target=lambda: setattr(self, "_cap_r", atalho.capturar()), daemon=True).start()
+
+    def _rot_atalho(self, txt, seg=None):
+        self.rot_atalho = txt; self.ass = None
+        if seg:
+            self.win.after(int(seg * 1000), lambda: self.vivo() and self._rot_atalho("Trocar o atalho"))
 
     def _fim_troca(self, r):
         self._capturando = False
@@ -3262,39 +3146,35 @@ class Painel:
             c = cfg(); c["atalho"] = r["texto"]; c.pop("atalho_cancelar", None); salvar_cfg(c)
             log("atalho trocado na janelinha: " + r["texto"])
         atalho.recarregar()                   # registra o novo (ou devolve o antigo, se cancelou)
-        self._texto(self.lb_sub, atalho.legenda(cfg()), "vermelho")
-        self._pintar(self.bt_atalho, "mini", r["msg"])
-        self.win.after(3500, lambda: self.vivo() and self._pintar(self.bt_atalho, "mini", "TROCAR O ATALHO"))
+        self._rot_atalho(r["msg"], 3.5)
 
     def _pintar_atual(self):
         """pacote da Fly (27/10): o botão de atualização mostra a versão nova assim que o vigia (atualizar.py) acha."""
         self._nova_pintada = atualizar.NOVA
-        if atualizar.NOVA:
-            self._pintar(self.bt_atual, "neutro", "ATUALIZAR PRA " + atualizar.NOVA)
-        else:
-            self._pintar(self.bt_atual, "mini", "PROCURAR ATUALIZACAO · VERSAO " + atualizar.versao_local())
+        self.rot_atual = ("Atualizar pra " + atualizar.NOVA) if atualizar.NOVA else ("Procurar atualização · versão " + atualizar.versao_local())
+        self.ass = None
 
     def atualizacao(self):
         if getattr(self, "_procurando", False):
             return
         if atualizar.NOVA:
             if self.tela.quem:
-                self._pintar(self.bt_atual, "mini", "CONCLUA A GRAVACAO ANTES")
+                self.rot_atual = "Conclua a gravação antes"; self.ass = None
                 self.win.after(2500, lambda: self.vivo() and self._pintar_atual()); return
             atualizar.abrir_instalador_em_janela()     # janela preta à parte: ela fecha e reabre o Kakashi no fim
             log("atualização: o botão abriu o atualizador (%s)" % atualizar.NOVA)
-            self._pintar(self.bt_atual, "neutro", "ATUALIZANDO · ACOMPANHE NA JANELA PRETA"); return
+            self.rot_atual = "Atualizando · acompanhe na janela preta"; self.ass = None; return
         self._procurando = True; self._atual_r = None
-        self._pintar(self.bt_atual, "neutro", "PROCURANDO...")
+        self.rot_atual = "Procurando..."; self.ass = None
         threading.Thread(target=lambda: setattr(self, "_atual_r", atualizar.checar()), daemon=True).start()
 
     def _fim_procura(self, r):
         self._procurando = False
         if r["estado"] == "erro":
-            self._pintar(self.bt_atual, "mini", "SEM INTERNET OU GITHUB FORA")
+            self.rot_atual = "Sem internet ou GitHub fora"; self.ass = None
             self.win.after(3500, lambda: self.vivo() and self._pintar_atual())
         elif r["estado"] == "em_dia":
-            self._pintar(self.bt_atual, "mini", "EM DIA · VERSAO " + r["local"])
+            self.rot_atual = "Em dia · versão " + r["local"]; self.ass = None
             self.win.after(3500, lambda: self.vivo() and self._pintar_atual())
         else:
             self._pintar_atual()
@@ -3308,32 +3188,6 @@ class Painel:
     def fechar(self):
         self.win.destroy(); self.tela.painel = None
 
-    def montar_lista(self, forcar=False):
-        gs = gravacoes(10)
-        grav_pasta = os.path.normcase(self.tela.k.pc.pasta) if (self.tela.k.pc) else None
-        ass = tuple((g["pasta"], g["dur"]) for g in gs) + (grav_pasta,)
-        self.ult_lista = time.time()
-        if ass == self.assinatura and not forcar:
-            return          # nada mudou: não refaz (era isso que fazia piscar)
-        self.assinatura = ass
-        for w in self.lista.winfo_children():
-            w.destroy()
-        if not gs:
-            l = tk.Label(self.lista, bg=self.FUNDO, bd=0); l.pack(anchor="w"); self._texto(l, "NENHUMA AINDA", "cinza")
-        for g in gs:
-            ln = tk.Frame(self.lista, bg="#121217", highlightthickness=0); ln.pack(fill="x", pady=2)
-            d = g["dur"]; dur = "%d:%02d" % (int(d) // 60, int(d) % 60) if d else "GRAVANDO"
-            q = g["quando"]      # 2026-10-19 15:31 → 19/10 15:31
-            q = "%s/%s %s" % (q[8:10], q[5:7], q[11:16]) if len(q) >= 16 else q
-            l = tk.Label(ln, bg="#121217", bd=0); l.pack(side="left", padx=8, pady=6)
-            self._texto(l, "%s · %s · %s" % (q, g["tipo"], dur), "branco")
-            esta = grav_pasta and os.path.normcase(g["pasta"]) == grav_pasta
-            if not esta:
-                b = self._botao(ln, 120, 26, lambda g=g: (descartar(g), self.montar_lista(forcar=True))); b.pack(side="right", padx=(4, 4), pady=3)
-                self._pintar(b, "perigo", "DESCARTAR")
-            b = self._botao(ln, 80, 26, lambda g=g: os.startfile(g["pasta"])); b.pack(side="right", pady=3)
-            self._pintar(b, "mini", "ABRIR")
-
     def tique(self):
         if not self.vivo():
             self.tela.painel = None; return
@@ -3343,37 +3197,13 @@ class Painel:
             r, self._atual_r = self._atual_r, None; self._fim_procura(r)
         elif not getattr(self, "_procurando", False) and getattr(self, "_nova_pintada", "?") != atualizar.NOVA:
             self._pintar_atual()            # o vigia achou versão nova enquanto a janelinha estava aberta
-        grav = bool(self.tela.quem); agora = time.time()
-        if grav and agora - self.ult_giro > 0.09:
-            self.ult_giro = agora; self.giro_i = (self.giro_i + 1) % 12
-            self.lb_olho.configure(image=self.olho_g["giro"][self.giro_i])
-        elif not grav and getattr(self, "_olho_parado", False) is False:
-            self.lb_olho.configure(image=self.olho_g["olho"])
-        self._olho_parado = not grav
-        s_ = int(agora - self.tela.desde) if (grav and self.tela.desde) else 0
-        crono = "%02d:%02d" % (s_ // 60 % 100, s_ % 60)
-        if getattr(self, "_crono", None) != crono:
-            self._crono = crono; self._texto(self.lb_crono, crono, "branco", 5)
-        quem = {"pc": "PC", "app_pessoal": "APP_PESSOAL", "premiere": "PREMIERE"}.get(self.tela.quem, "")
-        mudo = grav and self.tela.mudo
-        pausa = grav and self.tela.pausado
-        est = ("gravando", quem, mudo, pausa) if grav else ("parado",)
-        if est != self.estado_bt:
-            self.estado_bt = est
-            self.ponto.configure(bg=("#FFE600" if pausa else "#5b5b63" if mudo else "#ff1e2e") if grav else "#39d353")
-            self._texto(self.lb_status, ("PAUSADO · " + quem if pausa else "GRAVANDO · " + quem + (" · SEM SOM" if mudo else "")) if grav
-                        else "PRONTO · NADA GRAVANDO", ("amarelo" if pausa else "vermelho" if mudo else "branco") if grav else "cinza")
-            if grav and self.tela.quem in ("pc", "premiere"):     # 04/11: o Premiere também pausa/continua daqui
-                self._pintar(self.bt_grav, "vermelho" if pausa else "neutro", "CONTINUAR" if pausa else "PAUSAR", 3)
-                self._pintar(self.bt_conc, "concluir", "CONCLUIR")
-            else:
-                self._pintar(self.bt_grav, "concluir" if grav else "vermelho", "CONCLUIR" if grav else "INICIAR", 3)
-                self._pintar(self.bt_conc, "off", "CONCLUIR")
-            self._pintar(self.bt_canc, "mini" if grav else "off", "CANCELAR")
-        if agora - self.ult_trilho > 0.25:
-            self.ult_trilho = agora; self._desenhar_trilho()
-        if agora - self.ult_lista > 3:
+        agora = time.time()
+        if agora - self.ult > 0.3:
+            self.ult = agora
+            self.nivel = self._nivel()
+        if agora - getattr(self, "ult_lista", 0) > 3:
             self.montar_lista()
+        self.desenhar()
 
 
 def main():
