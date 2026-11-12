@@ -20,7 +20,44 @@ async function gravando() {
   } catch (e) {
     estado.gravando = false;           // Kakashi fechado
   }
+  if (estado.gravando) vigiarTracos();
   return estado.gravando;
+}
+
+// ---------- KAKASHI 3.0 (12/11/2026): o elemento do Chrome debaixo da PONTA DO DESENHO ----------
+// Desenhando, o mouse está na janela do desenho do Kakashi, não no Chrome: o olho.js não vê nada. O Kakashi põe no /status o
+// «pedido_chrome» {id, x, y, escala} (a ponta do traço, em pixel da tela) e eu peço à guia da frente da janela do Chrome que está
+// ali o elemento nesse ponto (o mesmo descrever() do olho.js, com o código-fonte). Só enquanto o Kakashi grava.
+let vigiando = false, ultPedido = 0;
+async function vigiarTracos() {
+  if (vigiando) return;
+  vigiando = true;
+  try {
+    for (;;) {
+      let s;
+      try { s = await (await fetch(KAKASHI + "/status", {cache: "no-store"})).json(); } catch (e) { break; }
+      if (s.estado !== "gravando") break;
+      const p = s.pedido_chrome;
+      if (p && p.id !== ultPedido) { ultPedido = p.id; await descreverPonto(p).catch(() => {}); }
+      chrome.runtime.getPlatformInfo(() => {});            // chamada de extensão = o fundo não dorme enquanto grava
+      await new Promise(ok => setTimeout(ok, s.ferramenta && s.ferramenta !== "cursor" ? 300 : 1500));
+    }
+  } finally {
+    vigiando = false;
+  }
+}
+
+async function descreverPonto(p) {
+  const esc = p.escala || 1, x = p.x / esc, y = p.y / esc;          // pixel da tela → DIP (o que o Chrome usa nas janelas)
+  const janelas = await chrome.windows.getAll({populate: true, windowTypes: ["normal", "popup", "app"]});
+  const dentro = janelas.filter(w => w.state !== "minimized" && x >= w.left && x < w.left + w.width && y >= w.top && y < w.top + w.height);
+  const w = dentro.find(j => j.focused) || dentro[0];
+  const aba = w && w.tabs.find(t => t.active);
+  if (!aba || !/^(https?|file):/.test(aba.url || "")) return;
+  const r = await chrome.tabs.sendMessage(aba.id, {tipo: "descrever-ponto", x, y, escala: esc}, {frameId: 0}).catch(() => null);
+  if (!r || !r.dados) return;
+  const d = Object.assign({}, r.dados, {aba: aba.id, frame: 0, pedido: p.id});
+  await fetch(KAKASHI + "/chrome", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(d)}).catch(() => {});
 }
 
 chrome.runtime.onMessage.addListener((msg, quem, responder) => {
@@ -92,7 +129,7 @@ async function entrou() {
 chrome.runtime.onInstalled.addListener(() => { entrou(); });      // instalada ou recarregada (inclusive pelo reload acima)
 chrome.runtime.onStartup.addListener(() => { entrou(); });        // Chrome aberto: o código que roda é o do disco agora
 chrome.alarms.create("conferir", {periodInMinutes: 1});
-chrome.alarms.onAlarm.addListener(a => { if (a.name === "conferir") conferir(); });
+chrome.alarms.onAlarm.addListener(a => { if (a.name === "conferir") { conferir(); gravando(); } });   // 3.0: acorda o vigia do desenho
 
 
 // ---------- ponte Fly X-tudo → Fly Studio (06/11/2026) ----------
@@ -108,7 +145,8 @@ const ROTAS = [
   ["GET", new RegExp(`^/v1/models$`)],
   ["GET", new RegExp(`^/v1/workspaces/019d4ee4-642d-742d-84d9-28e0558f18ec/ips/${FLY_IP}/spending-limits$`)],
   ["GET", new RegExp(`^/v1/ips/${FLY_IP}/productions/${U}$`)],
-  ["GET", new RegExp(`^/v1/ips/${FLY_IP}/canvas/${U}/predictions$`)],
+  // 12/11 (espelho do PLAY no Fly X-tudo): a lista vem em páginas de 20; a seguinte pede ?cursor=<token> — só esse parâmetro é aceito
+  ["GET", new RegExp(`^/v1/ips/${FLY_IP}/canvas/${U}/predictions([?]cursor=[A-Za-z0-9_%=-]{1,400})?$`)],
   ["POST", new RegExp(`^/v1/ips/${FLY_IP}/productions/${U}/(scenes|shots)$`)],
   ["POST", new RegExp(`^/v1/ips/${FLY_IP}/canvas/${U}/predictions/(videos|images)$`)],
   ["POST", new RegExp(`^/v1/ips/${FLY_IP}/media-cookies$`)],
@@ -167,10 +205,19 @@ async function subirRef(url, nome, origemPagina) {
   if (!refPermitida(url, origemPagina)) return { ok: false, erro: "referência fora do permitido (só data:, o próprio X-tudo ou https de fora do PC)" };
   const chave = "flyref:" + url.slice(0, 300);
   if (!url.startsWith("data:")) { const g = await chrome.storage.local.get(chave); if (g[chave]) return { ok: true, dados: g[chave], cache: true }; }
-  const resp = await fetch(url);
-  if (resp.url && !url.startsWith("data:") && !refPermitida(resp.url, origemPagina)) return { ok: false, erro: "a referência redirecionou pra um endereço de dentro do PC" };
-  const blob = await resp.blob();
-  const dataUrl = await paraDataUrl(blob);
+  /* 12/11/2026 (Kakashi 05:42 [5:30], «Não consegui enviar membro do comando»): a picture of 16,6 MB went whole as data: in the
+     executeScript arguments and the Fly's tab gave nothing back. A link from outside the PC (ARDI's storage, open to any site) is now
+     fetched by the Fly's tab itself; only data: and the X-tudo's own links still travel inside the message */
+  const deFora = !url.startsWith("data:") && (() => { try { return new URL(url).origin !== origemPagina; } catch (e) { return false; } })();
+  let dataUrl = null;
+  if (deFora) {
+    const cab = await fetch(url, { method: "HEAD" });
+    if (cab.url && !refPermitida(cab.url, origemPagina)) return { ok: false, erro: "a referência redirecionou pra um endereço de dentro do PC" };
+  } else {
+    const resp = await fetch(url);
+    if (resp.url && !url.startsWith("data:") && !refPermitida(resp.url, origemPagina)) return { ok: false, erro: "a referência redirecionou pra um endereço de dentro do PC" };
+    dataUrl = await paraDataUrl(await resp.blob());
+  }
   const res = await noFly(async (API, IP, dataUrl, nome) => {
     const blob = await (await fetch(dataUrl)).blob();
     const tipo = blob.type || "image/jpeg";
@@ -184,7 +231,7 @@ async function subirRef(url, nome, origemPagina) {
     if (!conf.ok) return { ok: false, status: conf.status, erro: "confirm " + conf.status };
     const o = await conf.json();
     return { ok: true, dados: { type: o.type, uid: o.uid, previewUrl: o.previewUrl || null } };
-  }, [FLY_API, FLY_IP, dataUrl, nome || "ref"]);
+  }, [FLY_API, FLY_IP, dataUrl || url, nome || "ref"]);
   if (res && res.ok && !url.startsWith("data:")) await chrome.storage.local.set({ [chave]: res.dados });
   return res || { ok: false, erro: "a aba do Fly não respondeu" };
 }

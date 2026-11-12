@@ -39,6 +39,16 @@ Pedido dele: "um atalho pra eu poder começar a gravar, sem ter que clicar em na
 - Porta 7816: GET /status (estado: gravando/parado — o Claude confere antes de reiniciar) · POST /app_pessoal (card sob o mouse)
     · POST /chrome (04/11: a extensão chrome\\ manda o ELEMENTO DA PÁGINA sob o mouse, pelo código: tag, seletor, texto, link,
     imagem, componente e arquivo:linha em app local; vira o evento "chrome" no eventos.jsonl)
+- KAKASHI 3.0 (12/11/2026, chat; ele: «em vez de ter aquela caixinha com pausar e tudo mais, seria maneiro ter uma... barrinha no
+  meio... você apaga os fragmentos que você não quer» · «o atalho tem que ser um só... esse nível... eu que tenho que colocar ali...
+  coisa rápida, ou coisa mais profunda» · «pode começar tudo logo, já faz tudo»):
+    BARRA no meio da tela (arrasta e fica lembrada; NÃO aparece na gravação nem nos prints: SetWindowDisplayAffinity) no lugar do
+    olho do canto: Sharingan + tempo + pausar + os PEDAÇOS (clique = apagar/voltar, PC e Premiere) + DESENHO (cursor, caneta,
+    seta, caixa, laser; 4 cores; desfazer; limpar) + concluir/cancelar.
+    O atalho continua UM só. Ao concluir, a barra pergunta RÁPIDO ou PROFUNDO: o clique grava MODO.json na pasta da sessão e cola
+    "/kakashi rápido" ou "/kakashi profundo". A skill lê o modo (rápido = PROMPT + conferidor; profundo = tudo, com sabotador).
+    Desenho (classe Desenho, só Windows): cada traço = evento "traco" com o elemento debaixo da ponta (UIA) + print logo depois;
+    no Chrome, a extensão manda o elemento pelo código (status.pedido_chrome → motivo "traco"). Ideia do bug reporter do Rolf (12/11).
 Só CPU. Som só o do aviso de microfone morto (P40).
 """
 import array, collections, ctypes, ctypes.wintypes as wt, datetime, glob, json, os, queue, re, shutil, subprocess, sys, threading, time
@@ -178,20 +188,22 @@ def _copiar(texto):
         _u32.CloseClipboard()
 
 
-def colar_kakashi(colar=True):
+def colar_kakashi(colar=True, texto=None):
     """Copia "/kakashi" e (se colar) aperta Ctrl+V na janela da frente. Espera ele soltar o Ctrl/Shift/Page Down do atalho,
-    senão o Ctrl+V sai como Ctrl+Shift+V. No Premiere só copia: lá Ctrl+V cola clipe na timeline."""
+    senão o Ctrl+V sai como Ctrl+Shift+V. No Premiere só copia: lá Ctrl+V cola clipe na timeline.
+    3.0 (12/11): texto = "/kakashi rápido" ou "/kakashi profundo" (o que ele escolheu na barra)."""
+    texto = texto or TEXTO_COLAR
     try:
         fim = time.time() + 3
         while time.time() < fim and any(_u32.GetAsyncKeyState(vk) & 0x8000 for vk in atalho.teclas_soltar()):
             time.sleep(0.03)
-        if not _copiar(TEXTO_COLAR):
+        if not _copiar(texto):
             log("colar: área de transferência ocupada"); return
         if colar and "premiere" not in janela_frente()["app"].lower():
             time.sleep(0.08)
             _u32.keybd_event(0x11, 0, 0, 0); _u32.keybd_event(0x56, 0, 0, 0)          # Ctrl down, V down
             _u32.keybd_event(0x56, 0, 2, 0); _u32.keybd_event(0x11, 0, 2, 0)          # V up, Ctrl up
-        log("colar: %s %s" % (TEXTO_COLAR, "copiado e colado" if colar else "copiado"))
+        log("colar: %s %s" % (texto, "copiado e colado" if colar else "copiado"))
     except Exception as e:
         log("colar: %s" % e)
 
@@ -199,20 +211,21 @@ if MAC:
     janela_frente = mac.janela_frente
     _copiar = mac.copiar
 
-    def colar_kakashi(colar=True):
+    def colar_kakashi(colar=True, texto=None):
         """Mac: copia "/kakashi" e (se colar) aperta Cmd+V na janela da frente, depois que ele soltar as teclas do atalho.
-        No Premiere só copia (lá Cmd+V cola clipe na timeline)."""
+        No Premiere só copia (lá Cmd+V cola clipe na timeline). 3.0: texto = "/kakashi rápido" ou "/kakashi profundo"."""
+        texto = texto or TEXTO_COLAR
         try:
             teclas = [c for c in [mac.VK_MAC.get(v) for v in atalho.teclas_soltar()] if c is not None] + mac.TECLAS_MOD
             fim = time.time() + 3
             while time.time() < fim and any(mac.tecla_apertada(c) for c in teclas):
                 time.sleep(0.03)
-            if not _copiar(TEXTO_COLAR):
+            if not _copiar(texto):
                 log("colar: área de transferência ocupada"); return
             if colar and "premiere" not in janela_frente()["app"].lower():
                 time.sleep(0.08)
                 mac.colar()
-            log("colar: %s %s" % (TEXTO_COLAR, "copiado e colado" if colar else "copiado"))
+            log("colar: %s %s" % (texto, "copiado e colado" if colar else "copiado"))
         except Exception as e:
             log("colar: %s" % e)
 
@@ -1027,13 +1040,18 @@ class Vigia:
                     t_amostra = agora
                     if amostra is None or abs(pos[0] - amostra[0]) + abs(pos[1] - amostra[1]) > 3:
                         amostra = pos; self.emitir({"tipo": "mouse", "x": pos[0], "y": pos[1]}, agora)
+                # 3.0 (12/11): com uma ferramenta de desenho escolhida o mouse está no pegador do Desenho: clique e pausa são DESENHO
+                # (o evento «traco» já leva o elemento debaixo da ponta) — não vira «clique» nem «mouse parou» no app de baixo
+                desenhando = self.k.desenhando()
                 if andou > 25 and agora - t_mexeu >= self.PAUSA:
                     andou = 0.0
                     self.emitir({"tipo": "parou", "x": pos[0], "y": pos[1]}, t_mexeu)
-                    if g is not None:
+                    if g is not None and not desenhando:
                         self.pedir("uia", "parou", pos, t_mexeu); self.pedir("print", "parou", pos, t_mexeu)
                 for vk in botoes:
                     baixo = mac.botao(vk - 1) if MAC else bool(user32.GetAsyncKeyState(vk) & 0x8000)
+                    if baixo and not botoes[vk] and desenhando:
+                        botoes[vk] = baixo; continue
                     if baixo and not botoes[vk]:
                         alvo = mac.janela_em(*pos) if MAC else janela_frente(user32.GetAncestor(user32.WindowFromPoint(pt), 2))
                         self.emitir({"tipo": "clique" if vk == 1 else "clique_direito", "x": pos[0], "y": pos[1], **alvo}, agora)
@@ -1078,8 +1096,8 @@ class Vigia:
             return
         im, mon = olho.print_nativo(*pos)
         mini = olho.miniatura(im)
-        if perto and olho.parecida(mini, u["mini"]):
-            return                                      # mesma tela, cursor no mesmo lugar: nada novo
+        if perto and motivo != "traco" and olho.parecida(mini, u["mini"]):
+            return                                      # mesma tela, cursor no mesmo lugar: nada novo (o desenho sempre vale)
         os.makedirs(os.path.join(g.pasta, "_prints"), exist_ok=True)
         base = rel = os.path.join("_prints", g._rotulo(quando, motivo)); i = 2
         while os.path.exists(os.path.join(g.pasta, rel + ".jpg")):
@@ -1388,6 +1406,15 @@ class Kakashi:
         self.troca_pc = None      # a parte PC da correção que continuou no Premiere (pra cancelar junto)
         self.troca_desistiu = None  # a GravacaoPC em que o painel não começou: não tenta trocar de novo nela
         self.olho_prem = None       # 23/10: OlhoPremiere — o olho do PC dentro da sessão do painel enquanto ele grava
+        # 3.0 (12/11): a escolha RÁPIDO × PROFUNDO depois de concluir (uma por correção, na ordem), o desenho e o pedido pro Chrome
+        self.esc_trava = threading.Lock()
+        self.escolhas = self._carregar_escolhas()
+        self.esc_vistas = {os.path.normcase(p) for e in self.escolhas for p in e["pastas"]}
+        self.ult_fora = None        # (quem, pasta) da gravação de fora (Premiere/app de cartões): concluiu lá = a escolha aparece igual
+        self.prem_pedacos = []      # os pedaços do painel do Premiere (7815/status), pra barra
+        self.desenho = None         # a Tela põe aqui o Desenho (só Windows)
+        self.pedido_chrome = None   # {id, x, y, escala, t}: a extensão do Chrome descreve o elemento na ponta do traço
+        self.n_pedido = 0
         self.vigia = Vigia(self)
         self.replay = Replay()
         threading.Thread(target=self._cuidar_replay, daemon=True).start()
@@ -1460,16 +1487,25 @@ class Kakashi:
         lu = http("http://127.0.0.1:7798/api/app_pessoal/gravacao", t=1)
         if lu and lu.get("gravando"):
             self.quem_cache = "app_pessoal"
+            self.ult_fora = (self.quem_cache, lu.get("pasta"), None)        # 3.0: pra escolha, se ele concluir pelo botão de lá
             return "app_pessoal", time.time() - (lu.get("segundos") or 0)
         st = http("http://127.0.0.1:7815/status", t=1)
         if st and st.get("estado") in ("gravando", "pausado"):
             self.quem_cache = "premiere"
             self.prem_pausado = st.get("estado") == "pausado"      # 04/11: a janela dizia «GRAVANDO» com o painel pausado
             self.prem_painel_s = st.get("painel_visto_ha_s")
+            self.prem_pedacos = st.get("pedacos") or []             # 3.0: os pedaços do painel na barra (clique = apagar/voltar)
+            self.ult_fora = ("premiere", st.get("pasta"), self.troca_pc.pasta if self.troca_pc is not None else None)
             return "premiere", time.time() - (st.get("t_gravacao") or 0)
         self.quem_cache = None
         if st is not None:        # nada gravando (ele concluiu pelo botão do painel): a parte PC de uma troca não é mais "a atual"
             self.troca_pc = None; self.fora = None
+        uf = self.ult_fora
+        if uf is not None and ((st if uf[0] == "premiere" else lu) is not None):   # app fora do ar não é «concluiu»: espera voltar
+            # 3.0: concluiu pelo botão do painel do Premiere ou do app de cartões (não pelo atalho): a barra pergunta igual, só não cola
+            # (repetida = ignorada: o atalho já pediu a escolha dessa pasta; cancelada = a pasta já está nas vistas)
+            self.ult_fora = None
+            self._pedir_escolha(uf[0], [uf[1], uf[2]], False)
         return None, None
 
     def status(self):
@@ -1485,7 +1521,135 @@ class Kakashi:
             d["mudo_s"] = round(self.mudo, 1)      # P20: segundos em silêncio digital (> 20 = o olho está cinza)
         if self.olho_prem is not None:             # 23/10: o olho do PC dentro da sessão do Premiere
             d["olho_premiere"] = self.olho_prem.pasta
+        d["ferramenta"] = self.desenho.ferr if self.desenho is not None else "cursor"      # 3.0
+        d["escolha_pendente"] = len(self.escolhas)
+        pc_ = self.pedido_chrome
+        if pc_ is not None and time.time() - pc_["t"] < 4:  # 3.0: a extensão descreve o elemento do Chrome debaixo da ponta do traço
+            d["pedido_chrome"] = {c: pc_[c] for c in ("id", "x", "y", "escala")}
         return d
+
+    # ---------- 3.0 (12/11/2026): RÁPIDO × PROFUNDO, escolhido por ELE na barra depois de concluir ----------
+    ESCOLHAS = os.path.join(AQUI, "escolhas_pendentes.json")
+
+    def _carregar_escolhas(self):
+        """as escolhas que ficaram esperando quando o Kakashi fechou (pasta que ainda existe e ainda sem MODO.json)"""
+        try:
+            es = json.load(open(self.ESCOLHAS, encoding="utf-8"))
+        except (OSError, ValueError):
+            return []
+        return [e for e in es if any(os.path.isdir(p) and not os.path.isfile(os.path.join(p, "MODO.json")) for p in e.get("pastas", []))]
+
+    def _salvar_escolhas(self):
+        try:
+            with open(self.ESCOLHAS, "w", encoding="utf-8") as f:
+                json.dump(self.escolhas, f, ensure_ascii=False, indent=1)
+        except OSError as e:
+            log("escolha: não salvei a lista: %r" % e)
+
+    def _pedir_escolha(self, quem, pastas, colar):
+        pastas = [p for p in pastas if p]
+        if not pastas:
+            return
+        with self.esc_trava:
+            if any(os.path.normcase(p) in self.esc_vistas for p in pastas):
+                return
+            self.esc_vistas.update(os.path.normcase(p) for p in pastas)
+            self.escolhas.append({"quem": quem, "pastas": pastas, "colar": bool(colar), "t": round(time.time(), 2)})
+            self._salvar_escolhas()
+        log("escolha: %s %s esperando RÁPIDO ou PROFUNDO" % (quem, ", ".join(os.path.basename(p) for p in pastas)))
+
+    def _nao_perguntar(self, *pastas):
+        """cancelou: essas pastas nunca pedem escolha (vão pro _descartadas)"""
+        with self.esc_trava:
+            self.esc_vistas.update(os.path.normcase(p) for p in pastas if p)
+
+    @staticmethod
+    def _sumiu(p):
+        """a pasta saiu do lugar (cancelada/descartada) ou está marcada descartada"""
+        if not os.path.isdir(p):
+            return True
+        try:
+            return bool(json.load(open(os.path.join(p, "sessao.json"), encoding="utf-8")).get("descartada"))
+        except (OSError, ValueError):
+            return False
+
+    def escolha_atual(self):
+        """a escolha da vez (a mais velha), já sem as que foram canceladas/descartadas por fora"""
+        with self.esc_trava:
+            antes = len(self.escolhas)
+            self.escolhas = [e for e in self.escolhas if not all(self._sumiu(p) for p in e["pastas"])]
+            if len(self.escolhas) != antes:
+                self._salvar_escolhas()
+            return dict(self.escolhas[0], fila=len(self.escolhas)) if self.escolhas else None
+
+    def escolher(self, modo):
+        """o clique em RÁPIDO ou PROFUNDO: MODO.json em cada pasta da correção e cola "/kakashi rápido|profundo" (o atalho cola onde está o
+        cursor; no Premiere e quando ele concluiu pelo botão de lá, só copia)"""
+        with self.esc_trava:
+            if not self.escolhas:
+                return
+            e = self.escolhas.pop(0)
+            self._salvar_escolhas()
+        quando = datetime.datetime.now().replace(microsecond=0).isoformat()
+        for p in e["pastas"]:
+            if not os.path.isdir(p):
+                log("escolha: %s saiu do lugar, sem MODO.json" % p); continue
+            try:
+                with open(os.path.join(p, "MODO.json"), "w", encoding="utf-8") as f:
+                    json.dump({"modo": modo, "escolhido_em": quando, "quem": e["quem"], "pastas": e["pastas"]}, f, ensure_ascii=False, indent=1)
+            except OSError as ex:
+                log("escolha: MODO.json em %s: %r" % (p, ex))
+        log("escolha: %s → %s" % (", ".join(os.path.basename(p) for p in e["pastas"]), modo.upper()))
+        colar_kakashi(e["colar"], "/kakashi " + ("rápido" if modo == "rapido" else "profundo"))
+
+    def descartar_escolha(self):
+        """o X da escolha: a correção vai pro _descartadas (nunca apaga); espera o Kakashi/painel terminar de juntar os arquivos"""
+        with self.esc_trava:
+            if not self.escolhas:
+                return
+            e = self.escolhas.pop(0)
+            self._salvar_escolhas()
+        for p in e["pastas"]:
+            for _ in range(360):                    # até 3 min: o concluir (juntar pedaços, links do Chrome) ainda pode estar rodando
+                st = http("http://127.0.0.1:7815/status", t=1) or {}
+                try:
+                    sj = os.path.join(p, "sessao.json")
+                    m = json.load(open(sj, encoding="utf-8"))
+                    # PC: o "links" é a última coisa que o concluir grava (depois dos 12 s do histórico do Chrome); painel/app de
+                    # cartões: a duração gravada e o sessao.json parado há 15 s (teste_modo 12/11: mover antes quebrava o concluir)
+                    pronta = "links" in m or (("duracao_s" in m or "t_gravado" in m) and time.time() - os.path.getmtime(sj) > 15)
+                except (OSError, ValueError):
+                    pronta = False
+                if not os.path.isdir(p) or (pronta and not st.get("finalizando")):
+                    break
+                time.sleep(0.5)
+            if os.path.isdir(p):
+                ok = descartar({"pasta": p, "base": os.path.dirname(p)})
+                log("escolha: DESCARTOU %s (%s)" % (p, "foi pro _descartadas" if ok else "NÃO moveu"))
+
+    def alternar_pedaco(self, n):
+        """3.0: o clique num pedaço da barra = apaga ou volta (PC aqui; Premiere no painel, POST /apagar_pedaco | /voltar_pedaco).
+        O que está gravando não: pausa antes."""
+        if self.pc is not None:
+            return self.pc.alternar_pedaco(n)
+        st = http("http://127.0.0.1:7815/status", t=2) or {}
+        p = next((x for x in st.get("pedacos") or [] if x.get("n") == n), None)
+        if p is None or p.get("gravando"):
+            return False
+        r = http("http://127.0.0.1:7815/%s" % ("voltar_pedaco" if p.get("apagado") else "apagar_pedaco"), {"n": n}, t=30) or {}
+        log("Premiere: pedaço %d %s pela barra → %s" % (n, "VOLTAR" if p.get("apagado") else "APAGAR", r.get("erro") or "ok"))
+        self.prem_pedacos = r.get("pedacos") or self.prem_pedacos
+        return not r.get("erro")
+
+    def desenhando(self):
+        """uma ferramenta de desenho escolhida (o mouse está no pegador do Desenho, não no app de baixo)"""
+        d = self.desenho
+        return d is not None and d.ferr != "cursor"
+
+    def pedir_chrome(self, x, y):
+        self.n_pedido += 1
+        self.pedido_chrome = {"id": self.n_pedido, "x": int(x), "y": int(y), "escala": ESC, "t": time.time()}
+        return self.n_pedido
 
     def _cuidar_replay(self):
         """buffer ligado só quando NADA grava (o painel do Premiere e o AppPessoal gravam por conta própria)"""
@@ -1608,21 +1772,29 @@ class Kakashi:
                 if tr:
                     g.meta["voz_muda"] = tr        # P20: trechos em silêncio digital > 20 s (relógio da sessão)
             threading.Thread(target=g.concluir, args=(cancelar,), daemon=True).start()
-            if not cancelar:
-                threading.Thread(target=colar_kakashi, daemon=True).start()
+            # 3.0 (12/11): concluiu = a barra pergunta RÁPIDO ou PROFUNDO; o clique cola "/kakashi rápido|profundo" (era colar na hora)
+            if cancelar or all(p["apagado"] for p in g.pedacos):        # tudo apagado = vai pro _descartadas sozinha
+                self._nao_perguntar(g.pasta)
+            else:
+                self._pedir_escolha("pc", [g.pasta], True)
             return
         if quem == "app_pessoal":
+            uf, self.ult_fora = self.ult_fora, None
             if cancelar:      # 03/11 (revisão do AppPessoal, task «cancelar do Kakashi»): cancelar mandava «concluir»; agora vai pro _descartadas
+                self._nao_perguntar(uf[1] if uf else None)
                 http("http://127.0.0.1:7798/api/app_pessoal/gravacao", {"acao": "descartar", "motivo": "cancelada pelo atalho (Ctrl+Shift+Page Down)"}, t=20)
                 self.fora = None; return
             http("http://127.0.0.1:7798/api/app_pessoal/gravacao", {"acao": "concluir"}, t=20); self.fora = None
-            threading.Thread(target=colar_kakashi, daemon=True).start(); return
+            self._pedir_escolha(quem, [uf[1] if uf else None], True); return
         if quem == "premiere":
+            uf, self.ult_fora = self.ult_fora, None
             if cancelar:
+                self._nao_perguntar(*(uf[1:] if uf else ()))
                 http("http://127.0.0.1:7815/cancelar", {})
                 if self.troca_pc is not None:        # começou como PC e trocou: as duas partes são uma correção só
                     threading.Thread(target=self._descartar_parte_pc, args=(self.troca_pc,), daemon=True).start()
             else:
+                self._pedir_escolha("premiere", list(uf[1:]) if uf else [], False)     # no Premiere só copia (Ctrl+V lá cola clipe)
                 # 04/11 (queda de luz): o PC voltou com a sessão PAUSADA e o Premiere fechado; cada aperto virava um «concluir» na fila
                 # do painel, que não estava lá (8 na fila). Agora: aperto repetido em 15 s não conta, e sem o painel (nada há 5 s) o
                 # próprio CORRETOR conclui.
@@ -1638,7 +1810,6 @@ class Kakashi:
                     threading.Thread(target=_direto, daemon=True).start()
                 else:
                     http("http://127.0.0.1:7815/comando", {"acao": "concluir"})
-                threading.Thread(target=colar_kakashi, args=(False,), daemon=True).start()   # no Premiere só copia
             self.fora = None; self.troca_pc = None; return
         if cancelar:
             return
@@ -1787,6 +1958,11 @@ def servidor(k):
                 ev["iframe"] = True
             if d.get("senha"):
                 ev["senha"] = True
+            if isinstance(d.get("pedido"), int):       # 3.0: a resposta ao pedido_chrome = o elemento na ponta do traço
+                ev["pedido"] = d["pedido"]
+                pc_ = k.pedido_chrome
+                if pc_ is not None and pc_["id"] == d["pedido"]:
+                    k.pedido_chrome = None
             f = d.get("fonte")
             if isinstance(f, dict):
                 ev["fonte"] = {"framework": str(f.get("framework") or "")[:20], "arquivo": str(f.get("arquivo") or "")[:300],
@@ -1869,11 +2045,74 @@ except Exception:
 # o olho é o do painel do Premiere: arte de 40x40 ampliada 4x nos PNGs (160) → aqui 1 bloco = 1 px (40), ou 2 px (80) no config "olho": 80
 ICONES = os.path.join(CORRETOR, "painel", "icones")
 OLHO = int(cfg().get("olho", 40))
-W, H, R = int(220 * ESC) + 34, int(max(64, OLHO + 16) * ESC), int(OLHO * ESC) // 2
-# 04/11 (Kakashi 15:25, ele: «coloca um botãozinho aqui de play pause pra poder pausar, e aqui em cima, como outra barra, aquela
-# barrinha de pausa para poder apagar... E não o tempo todo, só quando tiver pausado... Para não ter que ficar abrindo aqui»):
-# o botão PAUSAR/CONTINUAR (30x26, à esquerda do tempo) e, só PAUSADO, a barra dos pedaços + APAGAR N em cima do olho
-BT_W, BARRA_H, APAGAR_W = 30, 34, 110
+def _tamanho_barra():
+    """3.0: o tamanho da barra acompanha a tela: 1 = 1080p a 100%; a 4K dele sem zoom do Windows (2160 lógicos) = 1,5"""
+    try:
+        alt = user32.GetSystemMetrics(1) if not MAC else 1080
+    except Exception:
+        alt = 1080
+    return ESC * (1.5 if alt / max(ESC, 0.5) > 1600 else 1.0)
+
+
+# KAKASHI 3.0 (12/11/2026) — a BARRA no meio da tela no lugar do olho do canto. Ele (chat): «em vez de ter aquela caixinha com pausar
+# e tudo mais, seria maneiro ter uma... barrinha no meio, que você mexe nela... você apaga os fragmentos que você não quer».
+F = _tamanho_barra()
+BH = int(40 * F)                    # altura da barra
+TXT = max(2, int(round(2 * F)))     # escala da fonte pixel (2 = a letra miúda do painel do Premiere)
+ICO = max(2, int(round(2 * F)))     # escala dos ícones 9x9
+CEL = int(30 * F)                   # largura de cada botão de ícone
+MARGEM = max(4, int(5 * F))         # o respiro em cima/embaixo dos botões
+LIMITE_TXT = 19                     # o letreiro tem largura fixa (a barra não pula quando a dica troca)
+CORES_DESENHO = (("vermelho", "#ff3b5c"), ("amarelo", "#ffd60a"), ("verde", "#30d158"), ("azul", "#0a84ff"))   # as do bug reporter do Rolf
+FERRAMENTAS = (("cursor", "CURSOR: MEXE NO APP"), ("caneta", "CANETA"), ("seta", "SETA"), ("caixa", "CAIXA"),
+               ("laser", "LASER: SOME SOZINHO"))
+LASER_S = 1.1                       # o rastro do laser some em 1,1 s (o número do Rolf)
+# os ícones da barra em 8 bits (9x9, X = aceso): a mesma cara da fonte pixel do painel
+ICONES_BARRA = {
+    "cursor": ["X........", "XX.......", "XXX......", "XXXX.....", "XXXXX....", "XXXXXX...", "XXXXXXX..", "XX.XX....", "X...XX..."],
+    "caneta": ["......XX.", ".....XXXX", "....XXXX.", "...XXXX..", "..XXXX...", ".XXXX....", ".XXX.....", "X.X......", "XX......."],
+    "seta":   ["...XXXXXX", "......XXX", ".....XX.X", "....XX..X", "...XX....", "..XX.....", ".XX......", "XX.......", "X........"],
+    "caixa":  ["XXXXXXXXX", "X.......X", "X.......X", "X.......X", "X.......X", "X.......X", "X.......X", "X.......X", "XXXXXXXXX"],
+    "laser":  [".........", "...XXX...", "..XXXXX..", ".XXXXXXX.", ".XXXXXXX.", ".XXXXXXX.", "..XXXXX..", "...XXX...", "........."],
+    "desfazer": ["...X.....", "..XX.....", ".XXXXXXX.", "XXXXXXXXX", ".XX.....X", "..X.....X", "........X", ".......X.", "..XXXXX.."],
+    "limpar": ["X.......X", "XX.....XX", ".XX...XX.", "..XX.XX..", "...XXX...", "..XX.XX..", ".XX...XX.", "XX.....XX", "X.......X"],
+    "pausa":  [".........", ".XX...XX.", ".XX...XX.", ".XX...XX.", ".XX...XX.", ".XX...XX.", ".XX...XX.", ".XX...XX.", "........."],
+    "play":   [".X.......", ".XX......", ".XXX.....", ".XXXX....", ".XXXXX...", ".XXXX....", ".XXX.....", ".XX......", ".X......."],
+    "raio":   [".....XXX.", "....XXX..", "...XXX...", "..XXXXXX.", ".....XX..", "....XX...", "...XX....", "..XX.....", ".X......."],
+    "lupa":   [".XXXX....", "X....X...", "X....X...", "X....X...", "X....X...", ".XXXXX...", ".....XX..", "......XX.", ".......XX"],
+}
+
+
+def icone_pil(nome, cor, E):
+    """o ícone 9x9 em PIL, com a sombra escura de 1 bloco (igual a fonte pixel)"""
+    from PIL import Image
+    g = ICONES_BARRA[nome]
+    rgb = tuple(int(cor[i:i + 2], 16) for i in (1, 3, 5)) + (255,)
+    im = Image.new("RGBA", ((len(g[0]) + 1) * E, (len(g) + 1) * E), (0, 0, 0, 0))
+    px = im.load()
+    for camada, c in ((0, (10, 10, 13, 255)), (1, rgb)):
+        for y, lin in enumerate(g):
+            for x, v in enumerate(lin):
+                if v != "X":
+                    continue
+                ox, oy = (x + 1, y + 1) if camada == 0 else (x, y)
+                for yy in range(oy * E, oy * E + E):
+                    for xx in range(ox * E, ox * E + E):
+                        px[xx, yy] = c
+    return im
+
+
+def _estilo_ex(win, mais=0, menos=0):
+    """liga/desliga bits do estilo estendido da janela de topo de um Toplevel do Tk (Windows). Devolve o HWND."""
+    try:
+        win.update_idletasks()
+        hw = user32.GetParent(win.winfo_id()) or win.winfo_id()
+        est = user32.GetWindowLongW(hw, -20)
+        user32.SetWindowLongW(hw, -20, (est | mais) & ~menos)
+        return hw
+    except Exception as e:
+        log("estilo da janela: %r" % e)
+        return None
 
 
 def desenhar_trilho(cv, x, y, w, h, ps, sel):
@@ -1921,7 +2160,277 @@ def olho_cinza(arq, k, master):
     return ImageTk.PhotoImage(olho_cinza_pil(arq, k), master=master)
 
 
+class Desenho:
+    """KAKASHI 3.0 (12/11/2026) — desenhar POR CIMA DE QUALQUER APP enquanto grava: caneta, seta, caixa e laser, 4 cores, desfazer e
+    limpar (a ideia e os números vêm do bug reporter do Fly Studio que o Rolf mandou em 12/11; lá é só dentro do site, aqui é a tela).
+    Ele (chat 12/11): «é só desenho na tela e o próprio código fonte lá, de onde eu passo o mouse... já resolveria».
+    Duas janelas do tamanho do monitor:
+      tinta   = onde o desenho aparece. Cor-chave transparente e o clique SEMPRE passa (WS_EX_LAYERED|WS_EX_TRANSPARENT). Entra no
+                tela.mp4 (o gdigrab copia janela layered) e no print nativo.
+      pegador = quase invisível (alpha ~1%); só aparece com uma ferramenta de desenho escolhida — é ele que recebe o mouse.
+                Botão direito nele = volta pro cursor.
+    Cada traço vira o evento «traco» (ferramenta, cor, caixa, ponta, pontos com o tempo, e o elemento do app DEBAIXO da ponta pela
+    UIA) + um print logo depois; no Chrome, a extensão descreve o elemento pelo código (Kakashi.pedido_chrome). O laser vira evento
+    quando para de mexer (0,6 s). Desfazer não apaga o evento (o traço apareceu no vídeo): vira «traco_desfeito». Só Windows."""
+
+    def __init__(self, tela):
+        self.tela, self.k = tela, tela.k
+        root = tela.root
+        self.ferr, self.cor = "cursor", 0
+        self.tracos = []            # {n, ferr, cor, pts: [(x, y, t)], itens: [ids do canvas]}
+        self.atual = None
+        self.laser, self.laser_seg, self.laser_mexeu, self.hover = [], [], 0.0, None
+        self.n = 0
+        self.fila = queue.Queue()   # o trabalho de cada traço (UIA, evento, print) fora do Tk: a UIA não roda na thread das janelas
+        self.reabrir = False        # o trabalhador terminou: o pegador volta (o Tk que faz)
+        self.mon = olho.monitor_de(*tela.centro())
+        l, t, r, b = self.mon
+        geo = "%dx%d+%d+%d" % (r - l, b - t, l, t)
+        self.tinta = tk.Toplevel(root); self.tinta.overrideredirect(True); self.tinta.attributes("-topmost", True)
+        self.tinta.configure(bg=TRANSP); self.tinta.attributes("-transparentcolor", TRANSP); self.tinta.geometry(geo)
+        self.cv = tk.Canvas(self.tinta, width=r - l, height=b - t, bg=TRANSP, highlightthickness=0, bd=0)
+        self.cv.pack()
+        self.peg = tk.Toplevel(root); self.peg.overrideredirect(True); self.peg.attributes("-topmost", True)
+        self.peg.configure(bg="#000000", cursor="crosshair"); self.peg.geometry(geo)
+        self.peg.attributes("-alpha", 0.01)
+        for ev, f in (("<ButtonPress-1>", self._apertou), ("<B1-Motion>", self._arrastou), ("<ButtonRelease-1>", self._soltou),
+                      ("<Motion>", self._mexeu), ("<Button-3>", lambda e: self.ferramenta("cursor"))):
+            self.peg.bind(ev, f)
+        self.EX_TINTA = 0x00080000 | 0x00000020 | 0x08000000 | 0x00000080    # layered | transparent (clique passa) | noactivate | toolwindow
+        self.EX_PEG = 0x08000000 | 0x00000080                                 # noactivate | toolwindow (recebe o mouse)
+        _estilo_ex(self.tinta, mais=self.EX_TINTA); _estilo_ex(self.peg, mais=self.EX_PEG)
+        self.tinta.withdraw(); self.peg.withdraw()
+        self.tinta_vis = self.peg_vis = False
+        threading.Thread(target=self._trabalhador, daemon=True).start()
+
+    # ---- estado
+    def ferramenta(self, nome):
+        if nome not in dict(FERRAMENTAS):
+            return
+        if self.atual is not None:
+            self._apagar_itens(self.atual); self.atual = None
+        self.ferr = nome
+        self.peg.configure(cursor={"caneta": "pencil", "laser": "none"}.get(nome, "crosshair"))
+        self._mostrar()
+
+    def escolher_cor(self, i):
+        self.cor = i
+        if self.ferr in ("cursor", "laser"):         # escolheu cor = quer desenhar: vai pra caneta
+            self.ferramenta("caneta")
+
+    def tem_algo(self):
+        return bool(self.tracos or self.laser or self.ferr != "cursor")
+
+    def _mostrar(self):
+        quer_peg = self.ferr != "cursor"
+        quer_tinta = quer_peg or bool(self.tracos) or bool(self.laser)
+        if quer_tinta != self.tinta_vis:
+            self.tinta_vis = quer_tinta
+            if quer_tinta:
+                self.tinta.deiconify(); self.tinta.attributes("-topmost", True); _estilo_ex(self.tinta, mais=self.EX_TINTA)
+            else:
+                self.tinta.withdraw()
+        if quer_peg != self.peg_vis:
+            self.peg_vis = quer_peg
+            if quer_peg:
+                self.peg.deiconify(); self.peg.attributes("-topmost", True); _estilo_ex(self.peg, mais=self.EX_PEG)
+            else:
+                self.peg.withdraw()
+        self.tela.topo()
+
+    def parar(self):
+        """a gravação acabou: tudo some, sem evento (não tem mais onde gravar)"""
+        self.cv.delete("all"); self.tracos, self.laser, self.laser_seg, self.atual = [], [], [], None
+        self.ferr = "cursor"; self._mostrar()
+
+    # ---- mouse no pegador
+    def _apertou(self, e):
+        if self.ferr in ("cursor", "laser"):
+            return
+        self.atual = {"ferr": self.ferr, "cor": self.cor, "pts": [(e.x_root, e.y_root, time.time())], "itens": []}
+        self._redesenhar(self.atual)
+
+    def _arrastou(self, e):
+        tr = self.atual
+        if tr is None:
+            return self._mexeu(e)
+        pts, ponto = tr["pts"], (e.x_root, e.y_root, time.time())
+        if tr["ferr"] == "caneta":
+            if abs(ponto[0] - pts[-1][0]) + abs(ponto[1] - pts[-1][1]) >= 2:
+                pts.append(ponto)
+        elif len(pts) == 1:
+            pts.append(ponto)
+        else:
+            pts[-1] = ponto
+        self._redesenhar(tr)
+
+    def _soltou(self, e):
+        tr, self.atual = self.atual, None
+        if tr is None:
+            return
+        pts = tr["pts"]
+        xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+        if tr["ferr"] == "caneta":
+            pequeno = len(pts) < 2 or max(max(xs) - min(xs), max(ys) - min(ys)) < 4
+        else:
+            pequeno = len(pts) < 2 or max(abs(pts[-1][0] - pts[0][0]), abs(pts[-1][1] - pts[0][1])) < 6
+        if pequeno:                                   # clique sem arrastar: não é desenho
+            self._apagar_itens(tr); return
+        self.n += 1; tr["n"] = self.n; self.tracos.append(tr)
+        if tr["ferr"] == "caixa":
+            ponta = ((pts[0][0] + pts[-1][0]) // 2, (pts[0][1] + pts[-1][1]) // 2)     # a caixa aponta pro que está dentro
+        else:
+            ponta = (pts[-1][0], pts[-1][1])
+        self._registrar(tr["ferr"], tr["cor"], list(pts), tr["n"], ponta)
+
+    def _mexeu(self, e):
+        self.hover = (e.x_root, e.y_root)
+        if self.ferr != "laser":
+            return
+        agora = time.time()
+        p = (e.x_root, e.y_root, agora)
+        if self.laser_seg:
+            ult = self.laser_seg[-1]
+            self.laser_mov += abs(p[0] - ult[0]) + abs(p[1] - ult[1])
+        else:
+            self.laser_mov = 0.0
+        self.laser.append(p); self.laser_seg.append(p); self.laser_mexeu = agora
+        if not self.tinta_vis:
+            self._mostrar()
+
+    # ---- tinta
+    def _apagar_itens(self, tr):
+        for i in tr.get("itens", []):
+            self.cv.delete(i)
+        tr["itens"] = []
+
+    def _redesenhar(self, tr):
+        self._apagar_itens(tr)
+        l, t = self.mon[0], self.mon[1]
+        c, cv, esc = CORES_DESENHO[tr["cor"]][1], self.cv, "#0a0a0d"
+        xy = [v for x, y, _ in tr["pts"] for v in (x - l, y - t)]
+        ferr = tr["ferr"]
+        if ferr == "caneta":
+            if len(xy) == 2:
+                xy = xy + [xy[0] + 1, xy[1]]
+            tr["itens"] = [cv.create_line(*xy, fill=esc, width=int(9 * F), capstyle="round", joinstyle="round"),
+                           cv.create_line(*xy, fill=c, width=int(5 * F), capstyle="round", joinstyle="round")]
+        elif len(xy) >= 4:
+            a, b = xy[:2], xy[-2:]
+            if ferr == "seta":
+                tr["itens"] = [cv.create_line(*a, *b, fill=esc, width=int(9 * F), arrow="last", capstyle="round",
+                                              arrowshape=(int(24 * F), int(28 * F), int(12 * F))),
+                               cv.create_line(*a, *b, fill=c, width=int(5 * F), arrow="last", capstyle="round",
+                                              arrowshape=(int(20 * F), int(24 * F), int(9 * F)))]
+            elif ferr == "caixa":
+                x0, x1 = sorted((a[0], b[0])); y0, y1 = sorted((a[1], b[1]))
+                tr["itens"] = [cv.create_rectangle(x0, y0, x1, y1, outline="", fill=c, stipple="gray12"),
+                               cv.create_rectangle(x0, y0, x1, y1, outline=esc, width=int(8 * F)),
+                               cv.create_rectangle(x0, y0, x1, y1, outline=c, width=int(4 * F))]
+        if not self.tinta_vis:
+            self._mostrar()
+
+    def desfazer(self):
+        if not self.tracos:
+            return
+        tr = self.tracos.pop()
+        self._apagar_itens(tr)
+        self.k.vigia.emitir({"tipo": "traco_desfeito", "n": tr["n"], "ferramenta": tr["ferr"]})
+        self._mostrar()
+
+    def limpar(self):
+        n = len(self.tracos)
+        for tr in self.tracos:
+            self._apagar_itens(tr)
+        self.tracos, self.laser, self.laser_seg = [], [], []
+        self.cv.delete("laser")
+        if n:
+            self.k.vigia.emitir({"tipo": "tracos_limpos", "quantos": n})
+        self._mostrar()
+
+    def tique(self):
+        """a cada 50 ms (o laço da barra): o rastro do laser apagando, o laser parado vira evento, o pegador volta"""
+        agora = time.time()
+        if self.reabrir:
+            self.reabrir = False
+            if self.ferr != "cursor" and self.peg_vis:
+                self.peg.deiconify(); self.peg.attributes("-topmost", True); _estilo_ex(self.peg, mais=self.EX_PEG); self.tela.topo()
+        if self.ferr == "laser" and len(self.laser_seg) > 1 and self.laser_mov > 40 and agora - self.laser_mexeu > 0.6:
+            pts, self.laser_seg, self.laser_mov = self.laser_seg, [], 0.0
+            self.n += 1
+            self._registrar("laser", 0, pts, self.n, (pts[-1][0], pts[-1][1]))
+        elif self.ferr != "laser":
+            self.laser_seg = []
+        if self.laser or (self.ferr == "laser" and self.hover):
+            self._desenhar_laser(agora)
+
+    def _desenhar_laser(self, agora):
+        cv = self.cv; cv.delete("laser")
+        self.laser = [p for p in self.laser if agora - p[2] < LASER_S]
+        l, t = self.mon[0], self.mon[1]
+        for (x0, y0, _), (x1, y1, t1) in zip(self.laser, self.laser[1:]):
+            vida = max(0.0, 1 - (agora - t1) / LASER_S)
+            r, g, b = (int(0x5a + (0xff - 0x5a) * vida), int(0x00 + 0x3b * vida), int(0x10 + (0x5c - 0x10) * vida))
+            cv.create_line(x0 - l, y0 - t, x1 - l, y1 - t, fill="#%02x%02x%02x" % (r, g, b), width=max(1, int(8 * F * max(0.3, vida))),
+                           capstyle="round", tags="laser")
+        if self.ferr == "laser" and self.hover:       # o ponteiro do laser desenhado (o cursor do Windows fica escondido)
+            x, y = self.hover[0] - l, self.hover[1] - t; rr = int(7 * F)
+            cv.create_oval(x - rr - 3, y - rr - 3, x + rr + 3, y + rr + 3, fill="#ffffff", outline="", tags="laser")
+            cv.create_oval(x - rr, y - rr, x + rr, y + rr, fill="#ff1e2e", outline="", tags="laser")
+        if not self.laser and self.ferr != "laser":
+            self._mostrar()
+
+    # ---- o traço vira evento (fora do Tk)
+    def _registrar(self, ferr, cor, pts, n, ponta):
+        if self.k.alvo() is None:                     # pausado: o desenho fica na tela mas não entra na correção
+            return
+        if self.peg_vis:                              # a UIA precisa ver o app de baixo: o pegador sai do caminho um instante
+            self.peg.withdraw()
+        self.fila.put((ferr, cor, pts, n, ponta))
+
+    def _trabalhador(self):
+        uia = None
+        while True:
+            ferr, cor, pts, n, ponta = self.fila.get()
+            try:
+                time.sleep(0.03)                      # o Windows tirar o pegador da tela
+                if uia is None:
+                    uia = olho.UIA()
+                try:
+                    alvo = uia.em(*ponta)
+                except Exception as e:
+                    alvo = None; log("desenho/uia: %r" % e)
+                if alvo and str(alvo.get("app", "")).lower() in ("pythonw.exe", "python.exe"):
+                    alvo = None                       # pegou a própria tinta/barra: sem elemento
+            finally:
+                self.reabrir = True
+            try:
+                t0, quando = pts[0][2], pts[-1][2]
+                passo = max(1, len(pts) // 120)
+                amostra = pts[::passo] + ([pts[-1]] if (len(pts) - 1) % passo else [])
+                xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+                ev = {"tipo": "traco", "n": n, "ferramenta": ferr, "cor": CORES_DESENHO[cor][0] if ferr != "laser" else "laser",
+                      "caixa": [min(xs), min(ys), max(xs), max(ys)], "ponta": [int(ponta[0]), int(ponta[1])],
+                      "dur": round(quando - t0, 2), "pontos": [[int(p[0]), int(p[1]), int((p[2] - t0) * 1000)] for p in amostra]}
+                if alvo:
+                    ev["alvo"] = alvo
+                    if str(alvo.get("app", "")).lower() == "chrome.exe":
+                        ev["pedido_chrome"] = self.k.pedir_chrome(*ponta)
+                self.k.vigia.emitir(ev, quando)
+                self.k.vigia.pedir("print", "traco", (int(ponta[0]), int(ponta[1])), quando)
+                log("desenho: %s %d (%s) → %s" % (ferr, n, ev["cor"], (alvo or {}).get("nome", "?")[:60]))
+            except Exception as e:
+                log("desenho: %r" % e)
+
+
 class Tela:
+    """3.0 (12/11/2026): a BARRA do Kakashi, no meio da tela (em cima, centralizada; arrasta pela alça e fica lembrada em
+    config.json barra_cx/barra_y). Aparece só gravando ou esperando a escolha; fica FORA da gravação e dos prints
+    (SetWindowDisplayAffinity WDA_EXCLUDEFROMCAPTURE). Gravando: alça · Sharingan (clique = concluir) · letreiro (tempo, ou a dica do
+    botão debaixo do mouse) · pausar · pedaços (clique = apagar/voltar) · cursor/caneta/seta/caixa/laser · 4 cores · desfazer ·
+    limpar · CONCLUIR · cancelar. Concluiu: «COMO EU LEIO?» · RÁPIDO · PROFUNDO · descartar.
+    Antes (19/10–11/11) era o olho no canto, do lado da bolinha do Whisper, com a barra dos pedaços só pausado."""
+
     def __init__(self, k, fila):
         self.k, self.fila = k, fila
         self.root = tk.Tk(); self.root.overrideredirect(True); self.root.attributes("-topmost", True)
@@ -1930,53 +2439,84 @@ class Tela:
         else:
             self.root.configure(bg=TRANSP); self.root.attributes("-transparentcolor", TRANSP)
         c = cfg()
-        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
-        # padrão: do lado esquerdo da bolinha do Whisper (centro dela ~27 px da direita e ~76 px do fim da tela)
-        # posição lembrada pelo CENTRO do olho (se a janela mudar de largura, o olho continua onde ele deixou)
-        ox, oy = c.get("olho_x", sw - int(83 * ESC)), c.get("olho_y", sh - int(76 * ESC))
-        x, y = ox - (W - R - int(4 * ESC)), oy - H // 2
-        self.root.geometry("%dx%d+%d+%d" % (W, H, x, y))
-        self.cv = tk.Canvas(self.root, width=W, height=H, bg="systemTransparent" if MAC else TRANSP, highlightthickness=0); self.cv.pack()
+        sw = self.root.winfo_screenwidth()
+        self.cx, self.y = int(c.get("barra_cx", sw // 2)), int(c.get("barra_y", int(16 * F)))
+        self.W = 100
+        self.cv = tk.Canvas(self.root, width=self.W, height=BH, bg="systemTransparent" if MAC else TRANSP, highlightthickness=0)
+        self.cv.pack()
+        self._geo()
         self.olho = self._carregar_olho(); self.modo = "escondido"; self.quadro = 0; self.prox = 0.0; self.visivel = True
         self.painel = None
-        self.ang = 0.0; self.quem = None; self.desde = None; self.aviso = None; self.pisca = False; self.mudo = False; self.ult_estado = 0
-        self.pausado = False
-        self.barra = False; self.ped_sel = None; self.zonas = []      # 04/11: a barra dos pedaços (só pausado) e onde cada clique cai
-        self.arr = None
+        self.quem = None; self.desde = None; self.aviso = None; self.pisca = False; self.mudo = False; self.ult_estado = 0
+        self.pausado = False; self.escolha = None
+        self.zonas = []; self.hover = None; self.arr = None; self._z = None; self._dicas = []
+        self.w_txt = (LIMITE_TXT * 6 + 2) * TXT
         self.cv.bind("<ButtonPress-1>", self._apertou); self.cv.bind("<B1-Motion>", self._arrastou)
         self.cv.bind("<ButtonRelease-1>", self._soltou); self.cv.bind("<Button-3>", self._menu)
+        self.cv.bind("<Motion>", lambda e: setattr(self, "hover", self._zona_em(e.x)))
+        self.cv.bind("<Leave>", lambda e: setattr(self, "hover", None))
         if MAC:
             self.cv.bind("<Button-2>", self._menu); self.cv.bind("<Control-Button-1>", self._menu)
         self.menu = tk.Menu(self.root, tearoff=0)
-        self.menu.add_command(label="Pausar / continuar (só no PC)", command=self._pausa)
+        self.menu.add_command(label="Pausar / continuar", command=self._pausa)
         self.menu.add_command(label="Cancelar a gravação (vai pra descartadas)", command=lambda: self._acao(True))
         self.menu.add_command(label="Abrir o painel do Kakashi", command=lambda: self.abrir_painel())
+        self.menu.add_command(label="Barra de volta pro meio", command=self._centralizar)
         self.menu.add_separator(); self.menu.add_command(label="Fechar o Kakashi", command=self._sair)
-        # a bolinha NUNCA pega o foco (senão a "janela da frente" vira ela mesma): ferramenta + não-ativa
+        # a barra NUNCA pega o foco (senão a "janela da frente" vira ela mesma e o /kakashi cola nela): ferramenta + não-ativa
         self.root.update_idletasks()
-        try:
-            hw = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
-            GWL_EXSTYLE = -20
-            est = user32.GetWindowLongW(hw, GWL_EXSTYLE)
-            user32.SetWindowLongW(hw, GWL_EXSTYLE, est | 0x08000000 | 0x00000080)   # WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
-        except Exception as e:
-            log("noactivate: %s" % e)
-        if MAC:     # porte pro Mac: a bolinha em toda mesa (Space), sem o Mac pular de mesa quando ela aparece
+        self.hw = None
+        if not MAC:
+            self.hw = _estilo_ex(self.root, mais=0x08000000 | 0x00000080)       # WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW
+            try:   # fora da gravação e dos prints (Windows 10 2004+): o vídeo mostra o app, não a barra
+                ok = user32.SetWindowDisplayAffinity(self.hw, 0x11)
+                log("barra fora da gravação (WDA_EXCLUDEFROMCAPTURE): %s" % bool(ok))
+            except Exception as e:
+                log("barra fora da gravação: %r" % e)
+        if MAC:     # porte pro Mac: a barra em toda mesa (Space), sem o Mac pular de mesa quando ela aparece
             try: mac.olho_em_toda_mesa()
             except Exception as e: log("mesa: %r" % e)
+        self.desenho = None
+        if not MAC:
+            try:
+                self.desenho = Desenho(self); k.desenho = self.desenho
+            except Exception as e:
+                log("desenho: não montou (%r) — a barra segue sem as ferramentas" % e)
         self._mostrar(False)
         self.root.after(50, self._tique)
 
+    # ---- lugar
+    def _geo(self):
+        self.root.geometry("%dx%d+%d+%d" % (self.W, BH, self.cx - self.W // 2, self.y))
+
+    def centro(self):
+        return self.cx, self.y + BH // 2
+
+    def _centralizar(self):
+        self.cx, self.y = self.root.winfo_screenwidth() // 2, int(16 * F); self._geo()
+        c = cfg(); c.pop("barra_cx", None); c.pop("barra_y", None); salvar_cfg(c)
+
+    def topo(self):
+        """a barra por cima de tudo (inclusive do pegador do desenho), sem pegar o foco"""
+        try:
+            if MAC:
+                self.root.attributes("-topmost", True); self.root.lift(); return
+            hw = self.hw or user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
+            user32.SetWindowPos(hw, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)   # HWND_TOPMOST; SWP_NOSIZE|NOMOVE|NOACTIVATE
+        except Exception as e:
+            log("topo: %r" % e)
+
+    # ---- o olho (os mesmos quadros e tempos do painel do Premiere)
     def _carregar_olho(self):
-        # mesmos quadros e tempos do painel (main.js: ligar 55 ms, giro 90 ms em loop, desligar 45 ms ao contrário)
-        k = max(1, round(160 / (OLHO * ESC)))
-        abre = lambda n: tk.PhotoImage(file=os.path.join(ICONES, n)).subsample(k)
+        # main.js do painel: ligar 55 ms, giro 90 ms em loop, desligar 45 ms ao contrário
+        k = max(1, round(160 / max(16, BH - 6 * F)))
+        abre = lambda n: tk.PhotoImage(file=os.path.join(ICONES, n)).subsample(k)    # noqa: E731
         nomes = {"olho": "olho.png",
                  "ligar": ["ligar_%02d.png" % i for i in range(18) if os.path.isfile(os.path.join(ICONES, "ligar_%02d.png" % i))],
                  "giro": ["giro_%02d.png" % i for i in range(12)]}
         olho_ = {c: abre(v) if isinstance(v, str) else [abre(n) for n in v] for c, v in nomes.items()}
-        try:     # P20: os mesmos quadros em cinza = gravando MUDO (silêncio digital > 15 s)
-            cinza = lambda n: olho_cinza(os.path.join(ICONES, n), k, self.root)
+        try:     # P20: os mesmos quadros em cinza = gravando MUDO (silêncio digital > 20 s) ou pausado
+            cinza = lambda n: olho_cinza(os.path.join(ICONES, n), k, self.root)          # noqa: E731
             self.olho_cinza = {c: cinza(v) if isinstance(v, str) else [cinza(n) for n in v] for c, v in nomes.items()}
         except Exception as e:
             log("olho cinza: %r" % e); self.olho_cinza = olho_
@@ -1987,17 +2527,19 @@ class Tela:
         if agora < self.prox:
             return
         grav = bool(self.quem)
+        fica = grav or bool(self.escolha)            # 3.0: esperando a escolha a barra fica (com o olho parado)
         n_lig = len(self.olho["ligar"])
         if self.modo == "escondido":
-            if grav:
-                self._mostrar(True); self.modo = "olho_ini"; self.prox = agora + 0.25; return   # o olho aparece um instante
+            if fica:
+                self._mostrar(True); self.modo = "olho_ini" if grav else "olho"; self.prox = agora + 0.25
             return
         if self.modo == "olho_ini":
-            self.modo, self.quadro = ("ligando", 0) if grav else ("escondido", 0)
-            if not grav: self._mostrar(False)
+            self.modo, self.quadro = ("ligando", 0) if grav else ("olho", 0)
         elif self.modo == "olho":
-            if grav: self.modo, self.quadro = "ligando", 0
-            else: self.modo = "escondido"; self._mostrar(False)
+            if grav:
+                self.modo, self.quadro = "ligando", 0
+            elif not fica:
+                self.modo = "escondido"; self._mostrar(False)
         elif self.modo == "ligando":
             if not grav: self.modo = "desligando"
             elif self.quadro >= n_lig - 1: self.modo, self.quadro = "giro", 0
@@ -2007,13 +2549,22 @@ class Tela:
             else: self.quadro = (self.quadro + 1) % len(self.olho["giro"])
         elif self.modo == "desligando":
             if grav: self.modo = "ligando"
-            elif self.quadro <= 0: self.modo = "olho"; self.prox = agora + 0.3; return   # fica o olho 0,3 s e some
+            elif self.quadro <= 0: self.modo = "olho"; self.prox = agora + 0.3; return
             else: self.quadro -= 1
         self.prox = agora + {"ligando": 0.055, "giro": 0.090, "desligando": 0.045}.get(self.modo, 0.2)
 
-    def _pixel(self, txt, cor):
+    def _img_olho(self):
+        o = self.olho_cinza if ((self.mudo or self.pausado) and self.quem) else self.olho
+        if self.modo in ("ligando", "desligando"):
+            return o["ligar"][max(0, min(self.quadro, len(o["ligar"]) - 1))]
+        if self.modo == "giro":
+            return o["giro"][self.quadro]
+        return o["olho"]
+
+    def _pixel(self, txt, cor, E=None):
+        E = E or TXT
         if not hasattr(self, "_px_cache"): self._px_cache = {}
-        k = (txt, cor)
+        k = (txt, cor, E)
         if k not in self._px_cache:
             import pixel
             from PIL import ImageTk
@@ -2021,8 +2572,16 @@ class Tela:
             if len(self._px_cache) > 300:
                 for kk in list(self._px_cache)[:200]:
                     del self._px_cache[kk]
-            self._px_cache[k] = ImageTk.PhotoImage(pixel.render(txt, 2, cor), master=self.root)
+            self._px_cache[k] = ImageTk.PhotoImage(pixel.render(txt, E, cor), master=self.root)
         return self._px_cache[k]
+
+    def _icone(self, nome, cor):
+        if not hasattr(self, "_ico_cache"): self._ico_cache = {}
+        k = (nome, cor)
+        if k not in self._ico_cache:
+            from PIL import ImageTk
+            self._ico_cache[k] = ImageTk.PhotoImage(icone_pil(nome, cor, ICO), master=self.root)
+        return self._ico_cache[k]
 
     def _mostrar(self, sim):
         if sim == self.visivel: return
@@ -2035,14 +2594,7 @@ class Tela:
         else:
             self.root.withdraw()
 
-    def _img_olho(self):
-        o = self.olho_cinza if ((self.mudo or self.pausado) and self.quem) else self.olho
-        if self.modo in ("ligando", "desligando"):
-            return o["ligar"][max(0, min(self.quadro, len(o["ligar"]) - 1))]
-        if self.modo == "giro":
-            return o["giro"][self.quadro]
-        return o["olho"]
-
+    # ---- ações
     def _acao(self, cancelar=False):
         threading.Thread(target=lambda: (self.k.alternar(cancelar), self._forcar()), daemon=True).start()
 
@@ -2052,50 +2604,59 @@ class Tela:
     def _pausa(self):
         threading.Thread(target=lambda: (self.k.pausar_continuar(), self._forcar()), daemon=True).start()
 
+    def _escolher(self, modo):
+        self.escolha = None
+        threading.Thread(target=lambda: (self.k.escolher(modo), self._forcar()), daemon=True).start()
+
+    def _descartar_escolha(self):
+        self.escolha = None
+        threading.Thread(target=lambda: (self.k.descartar_escolha(), self._forcar()), daemon=True).start()
+
+    def _clicou(self, zona):
+        d = self.desenho
+        if zona in ("olho", "concluir"):
+            self._acao(False)
+        elif zona == "cancelar":
+            self._acao(True)
+        elif zona == "pausa":
+            self._pausa()
+        elif zona in ("rapido", "profundo"):
+            self._escolher(zona)
+        elif zona == "descartar":
+            self._descartar_escolha()
+        elif isinstance(zona, tuple) and zona[0] == "ped":
+            threading.Thread(target=lambda: (self.k.alternar_pedaco(zona[1]), self._forcar()), daemon=True).start()
+        elif d is not None and isinstance(zona, tuple) and zona[0] == "ferr":
+            d.ferramenta(zona[1])
+        elif d is not None and isinstance(zona, tuple) and zona[0] == "cor":
+            d.escolher_cor(zona[1])
+        elif d is not None and zona == "desfazer":
+            d.desfazer()
+        elif d is not None and zona == "limpar":
+            d.limpar()
+
+    def _zona_em(self, x):
+        return next((z for x0, x1, z in self.zonas if x0 <= x < x1), None)
+
     def _apertou(self, e):
-        self.arr = (e.x_root, e.y_root, self.root.winfo_x(), self.root.winfo_y(), False)
+        self.arr = (e.x_root, e.y_root, self.cx, self.y, False, self._zona_em(e.x))
 
     def _arrastou(self, e):
         if not self.arr: return
-        x0, y0, wx, wy, _ = self.arr
+        x0, y0, cx, cy, _, zona = self.arr
+        if zona not in (None, "alca"):              # arrastar começa na alça ou num pedaço vazio da barra
+            return
         if abs(e.x_root - x0) + abs(e.y_root - y0) > 5:
-            self.arr = (x0, y0, wx, wy, True)
-            self.root.geometry("+%d+%d" % (wx + e.x_root - x0, wy + e.y_root - y0))
+            self.arr = (x0, y0, cx, cy, True, zona)
+            self.cx, self.y = cx + e.x_root - x0, cy + e.y_root - y0
+            self._geo()
 
     def _soltou(self, e):
         if self.arr and self.arr[4]:
-            c = cfg(); c.pop("x", None); c.pop("y", None)
-            c["olho_x"] = self.root.winfo_x() + W - R - int(4 * ESC)
-            c["olho_y"] = self.root.winfo_y() + (BARRA_H if self.barra else 0) + H // 2; salvar_cfg(c)
-        elif self.arr:
-            zona = next((z for x0, y0, x1, y1, z in self.zonas if x0 <= e.x <= x1 and y0 <= e.y <= y1), None)
-            if zona is None:
-                self._acao(False)            # o olho e o tempo: começa/conclui, como sempre
-            elif zona == "pausa":
-                self._pausa()
-            elif zona == "apagar":
-                g = self.k.pc
-                if g is not None and self.ped_sel is not None:
-                    g.alternar_pedaco(self.ped_sel)
-            elif zona != "barra":            # um pedaço: seleciona / tira a seleção (o que está gravando não se apaga)
-                self.ped_sel = None if self.ped_sel == zona else zona
+            c = cfg(); c["barra_cx"], c["barra_y"] = int(self.cx), int(self.y); salvar_cfg(c)
+        elif self.arr and self.arr[5] is not None and self._zona_em(e.x) == self.arr[5]:
+            self._clicou(self.arr[5])
         self.arr = None
-
-    def _ajustar_barra(self):
-        """pausado no PC = a janela cresce PRA CIMA com a barra dos pedaços (o olho fica onde ele deixou); continuou = some"""
-        quer = bool(self.pausado and self.quem == "pc" and self.k.pc is not None)
-        if quer == self.barra:
-            return
-        self.barra = quer
-        if quer:          # já vem selecionado o pedaço que acabou de gravar: pausou → APAGAR N é um clique
-            ps = [p for p in self.k.pc.pedacos if p["dur"] is not None]
-            self.ped_sel = ps[-1]["n"] if ps else None
-        else:
-            self.ped_sel = None
-        x, y = self.root.winfo_x(), self.root.winfo_y()
-        alt = H + (BARRA_H if quer else 0)
-        self.root.geometry("%dx%d+%d+%d" % (W, alt, x, y - BARRA_H if quer else y + BARRA_H))
-        self.cv.configure(height=alt)
 
     def abrir_painel(self):
         if self.painel and self.painel.vivo():
@@ -2115,8 +2676,9 @@ class Tela:
             log("sair/replay: %r" % e)
         self.root.destroy(); os._exit(0)
 
+    # ---- o laço (50 ms)
     def _tique(self):
-        # 19/10: o laço do olho NUNCA pode morrer (um erro aqui congelava o olho e o atalho parava de responder)
+        # 19/10: o laço NUNCA pode morrer (um erro aqui congelava o olho e o atalho parava de responder)
         try:
             self._tique_corpo()
         except Exception as e:
@@ -2135,21 +2697,31 @@ class Tela:
         if agora - self.ult_estado > 1.0:        # quem está gravando (1x por segundo, em segundo plano)
             self.ult_estado = agora
             threading.Thread(target=self._ler_estado, daemon=True).start()
+        d = self.desenho
+        if d is not None:
+            try:
+                if not self.quem and d.tem_algo():
+                    d.parar()                        # acabou a gravação: o desenho some junto
+                elif self.pausado and d.ferr != "cursor":
+                    d.ferramenta("cursor")           # pausado: nada grava, o mouse volta pro app
+                d.tique()
+            except Exception as e:
+                log("desenho/tique: %r" % e)
         self._animar()
-        self._ajustar_barra()
         if self.visivel: self._desenhar()
         self._aviso_grande()
         if self.visivel and agora - getattr(self, "_ult_topo", 0) > 2.0:
-            # 22/10 (Kakashi PC 14:40 [12:15] "isso aqui era pra ficar em cima de tudo, né, ó, sumiu"): o "-topmost" do tk se perde
-            # depois de outra janela "sempre na frente" (ex.: o Lightshot) e o Chrome cobria o olho. Reafirma a cada 2 s, sem pegar foco.
+            # 22/10: o "-topmost" do tk se perde depois de outra janela "sempre na frente" (ex.: o Lightshot); reafirma a cada 2 s
             self._ult_topo = agora
-            try:
-                if MAC:
-                    self.root.attributes("-topmost", True); self.root.lift()
-                hw = user32.GetParent(self.root.winfo_id()) or self.root.winfo_id()
-                user32.SetWindowPos(hw, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)   # HWND_TOPMOST; SWP_NOSIZE|NOMOVE|NOACTIVATE
-            except Exception as e:
-                log("topo: %r" % e)
+            if d is not None and not MAC:
+                for w, vis in ((d.tinta, d.tinta_vis), (d.peg, d.peg_vis)):
+                    if vis:
+                        try:
+                            hw = user32.GetParent(w.winfo_id()) or w.winfo_id()
+                            user32.SetWindowPos(hw, -1, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)
+                        except Exception:
+                            pass
+            self.topo()
         if agora - getattr(self, "_ult_flag", 0) > 0.5:      # o atalho da área de trabalho pediu a janelinha?
             self._ult_flag = agora
             if os.path.exists(FLAG_PAINEL):
@@ -2209,67 +2781,185 @@ class Tela:
             self.k.voz_viva = None; self.k.mudo = 0.0
         self.pisca = bool(q) and not recente
         self.mudo = bool(q) and mudo > mudo_aviso_s()
+        self.escolha = None if q else self.k.escolha_atual()     # 3.0: gravando, a escolha da anterior espera
+
+    # ---- o desenho da barra
+    def _pedacos(self):
+        """[(n, estado)] estado: gravando | vale | apagado — PC (daqui) ou Premiere (do painel, pelo 7815/status)"""
+        if self.quem == "pc" and self.k.pc is not None:
+            return [(p["n"], "gravando" if p["dur"] is None else ("apagado" if p["apagado"] else "vale")) for p in self.k.pc.pedacos]
+        if self.quem == "premiere":
+            return [(p.get("n"), "gravando" if p.get("gravando") else ("apagado" if p.get("apagado") else "vale"))
+                    for p in self.k.prem_pedacos if p.get("n") is not None]
+        return []
+
+    def _letreiro(self):
+        """o texto do letreiro: a dica do botão debaixo do mouse, ou o estado"""
+        z = self.hover
+        dica = next((dc for _, _, zz, dc in getattr(self, "_dicas", []) if zz == z), None) if z is not None else None
+        if dica:
+            return dica, "amarelo"
+        if self.quem:
+            s = int(time.time() - self.desde) if self.desde else 0
+            nome = {"pc": "PC", "app_pessoal": "AppPessoal", "premiere": "Premiere"}.get(self.quem, "")
+            if self.mudo:            # P20: gravação muda há > 20 s: «SEM SOM» piscando (vermelho / cinza a cada 0,5 s)
+                return "SEM SOM %d:%02d" % (s // 60, s % 60), ("vermelho" if int(time.time() * 2) % 2 == 0 else "cinza")
+            if self.pausado:
+                return "%s PAUSA %d:%02d" % ("PR" if self.quem == "premiere" else nome, s // 60, s % 60), "amarelo"
+            return "%s %d:%02d" % (nome, s // 60, s % 60), ("amarelo" if self.pisca and int(time.time() * 2) % 2 == 0 else "branco")
+        if self.escolha:
+            return "COMO EU LEIO?", "branco"
+        return (self.aviso or "")[:LIMITE_TXT], "amarelo"
+
+    def _itens(self):
+        """[(largura, zona, dica, função de desenho(cv, x0, x1))] da esquerda pra direita"""
+        it = []
+        sep = lambda w: it.append((w, None, None, None))                                # noqa: E731
+        risco = lambda w: it.append((w, None, None, self._d_risco))                     # noqa: E731
+        it.append((int(16 * F), "alca", "ARRASTE A BARRA", self._d_alca))
+        if self.quem:
+            it.append((BH, "olho", "CONCLUIR", self._d_olho))
+            it.append((self.w_txt, None, None, self._d_letreiro))
+            if self.quem in ("pc", "premiere"):
+                it.append((CEL, "pausa", "CONTINUAR" if self.pausado else "PAUSAR", self._d_pausa))
+                ps = self._pedacos()
+                if ps:
+                    sep(int(4 * F))
+                    for n, est in ps[-12:]:
+                        dica = "PEDACO %d: %s" % (n, {"gravando": "GRAVANDO", "vale": "APAGAR", "apagado": "VOLTAR"}[est])
+                        it.append((int(24 * F), ("ped", n), dica, lambda cv, a, b, n=n, est=est: self._d_pedaco(cv, a, b, n, est)))
+            if self.desenho is not None:
+                risco(int(14 * F))
+                for nome, dica in FERRAMENTAS:
+                    it.append((CEL, ("ferr", nome), dica, lambda cv, a, b, nome=nome: self._d_ferr(cv, a, b, nome)))
+                sep(int(6 * F))
+                for i, (nome, hexa) in enumerate(CORES_DESENHO):
+                    it.append((int(22 * F), ("cor", i), nome.upper(), lambda cv, a, b, i=i: self._d_cor(cv, a, b, i)))
+                sep(int(6 * F))
+                it.append((CEL, "desfazer", "DESFAZER O ULTIMO", lambda cv, a, b: self._d_botao_ico(cv, a, b, "desfazer", "#ffffff")))
+                it.append((CEL, "limpar", "LIMPAR OS DESENHOS", lambda cv, a, b: self._d_botao_ico(cv, a, b, "limpar", "#ffffff")))
+            risco(int(14 * F))
+            it.append((self._w_rotulo("CONCLUIR"), "concluir", "CONCLUIR", lambda cv, a, b: self._d_botao_txt(cv, a, b, "CONCLUIR", "concluir")))
+            sep(int(4 * F))
+            it.append((CEL, "cancelar", "CANCELAR TUDO", lambda cv, a, b: self._d_botao_ico(cv, a, b, "limpar", "#ff5c5c", "perigo")))
+        elif self.escolha:
+            it.append((BH, None, None, self._d_olho))
+            it.append((self.w_txt, None, None, self._d_letreiro))
+            it.append((self._w_rotulo("RAPIDO", True), "rapido", "COISA RAPIDA",
+                       lambda cv, a, b: self._d_botao_txt(cv, a, b, "RAPIDO", "neutro", "raio", "#ffd60a")))
+            sep(int(6 * F))
+            it.append((self._w_rotulo("PROFUNDO", True), "profundo", "ANALISE PROFUNDA",
+                       lambda cv, a, b: self._d_botao_txt(cv, a, b, "PROFUNDO", "vermelho", "lupa", "#ffffff")))
+            fila = self.escolha.get("fila", 1)
+            if fila > 1:
+                it.append((self._w_rotulo("+%d" % (fila - 1)), None, None,
+                           lambda cv, a, b, f=fila: cv.create_image((a + b) // 2, BH // 2, image=self._pixel("+%d" % (f - 1), "cinza"))))
+            sep(int(6 * F))
+            it.append((CEL, "descartar", "DESCARTAR", lambda cv, a, b: self._d_botao_ico(cv, a, b, "limpar", "#ff5c5c", "perigo")))
+        it.append((int(6 * F), None, None, None))
+        return it
+
+    def _w_rotulo(self, txt, com_icone=False):
+        w = sum(6 for _ in txt) * TXT + int(24 * F)
+        return w + ((9 + 2) * ICO if com_icone else 0)
 
     def _desenhar(self):
-        cv = self.cv; cv.delete("all"); self.zonas = []
-        cx, cy = W - R - int(4 * ESC), H // 2 + (BARRA_H if self.barra else 0)
-        grav = bool(self.quem)
-        x0 = 4
-        if grav and self.quem in ("pc", "premiere"):   # 04/11: PAUSAR (duas barras) / CONTINUAR (triângulo), sem abrir a janelinha (o Premiere também)
-            b0, b1 = (4, cy - 13), (4 + BT_W, cy + 13)
-            if self.pausado:
-                botao_8bits(cv, b0[0], b0[1], b1[0], b1[1], "#d6001c", "#ff6a6a", "#5e000c")
-                mx, my = (b0[0] + b1[0]) // 2 + 1, cy
-                for i in range(5):           # triângulo em degraus (8 bits)
-                    cv.create_rectangle(mx - 5 + 2 * i, my - 7 + i * 1.5, mx - 3 + 2 * i, my + 7 - i * 1.5, fill="#FFFFFF", outline="")
-            else:
-                botao_8bits(cv, b0[0], b0[1], b1[0], b1[1], "#2a2a33", "#4a4a56", "#0a0a0d")
-                mx = (b0[0] + b1[0]) // 2
-                cv.create_rectangle(mx - 6, cy - 7, mx - 2, cy + 7, fill="#FFD60A", outline="")
-                cv.create_rectangle(mx + 2, cy - 7, mx + 6, cy + 7, fill="#FFD60A", outline="")
-            self.zonas.append((b0[0], b0[1], b1[0], b1[1], "pausa"))
-            x0 = 4 + BT_W + 4
-        if self.barra:                       # só PAUSADO: os pedaços + APAGAR N / VOLTAR N, em cima de tudo
-            g = self.k.pc
-            ps = list(g.pedacos) if g is not None else []
-            if self.ped_sel is not None and not any(p["n"] == self.ped_sel for p in ps):
-                self.ped_sel = None
-            ax0 = W - 4 - APAGAR_W; tw = ax0 - 6 - 4
-            for bx0, bx1, p in desenhar_trilho(cv, 4, 4, tw, 26, ps, self.ped_sel):
-                if p["dur"] is not None:
-                    self.zonas.append((bx0, 4, bx1, 30, p["n"]))
-            self.zonas.append((4, 4, 4 + tw, 30, "barra"))
-            sel = next((p for p in ps if p["n"] == self.ped_sel), None)
-            if sel is None:
-                botao_8bits(cv, ax0, 4, W - 4, 30, "#1a1a20", "#24242b", "#0a0a0d")
-                cv.create_image((ax0 + W - 4) // 2, 17, image=self._pixel("APAGAR", "apagado"))
-                self.zonas.append((ax0, 4, W - 4, 30, "barra"))
-            else:
-                if sel["apagado"]:
-                    botao_8bits(cv, ax0, 4, W - 4, 30, "#15151a", "#34343e", "#050507")
-                else:
-                    botao_8bits(cv, ax0, 4, W - 4, 30, "#2a0006", "#6a0a16", "#0a0002")
-                cv.create_image((ax0 + W - 4) // 2, 17, image=self._pixel(("VOLTAR %d" if sel["apagado"] else "APAGAR %d") % sel["n"],
-                                                                         "branco" if sel["apagado"] else "vermelho"))
-                self.zonas.append((ax0, 4, W - 4, 30, "apagar"))
-        amarelo = self.pisca and int(time.time() * 2) % 2 == 0
-        if amarelo:     # 10 min sem voz: anel amarelo piscando em volta do olho
-            cv.create_oval(cx - R - 4, cy - R - 4, cx + R + 4, cy + R + 4, outline="#FFE600", width=3)
+        itens = self._itens()
+        W = sum(w for w, _, _, _ in itens)
+        if W != self.W:
+            self.W = W; self.cv.configure(width=W); self._geo()
+        cv = self.cv; cv.delete("all"); self.zonas = []; self._dicas = []
+        botao_8bits(cv, 0, 0, W, BH, "#0b0b0e", "#34343e", "#050507")      # o corpo da barra, com o relevo do painel
+        x = 0
+        for w, zona, dica, f in itens:
+            self._z = zona                          # a zona deste pedaço (o botão pinta mais claro com o mouse em cima)
+            if f is not None:
+                f(cv, x, x + w)
+            if zona is not None:
+                self.zonas.append((x, x + w, zona))
+                if dica:
+                    self._dicas.append((x, x + w, zona, dica))
+            x += w
+
+    # peças
+    def _d_alca(self, cv, a, b):
+        cx, p = (a + b) // 2, max(2, int(2 * F))
+        for i in range(-2, 3):
+            for dx in (-p * 2, p * 2):
+                cv.create_rectangle(cx + dx - p, BH // 2 + i * p * 3 - p, cx + dx + p, BH // 2 + i * p * 3 + p, fill="#4a4a56", outline="")
+
+    def _d_olho(self, cv, a, b):
+        cx, cy = (a + b) // 2, BH // 2
+        if self.pisca and int(time.time() * 2) % 2 == 0:     # 10 min sem voz: anel amarelo piscando em volta do olho
+            r = BH // 2 - 2
+            cv.create_oval(cx - r, cy - r, cx + r, cy + r, outline="#FFE600", width=3)
         cv.create_image(cx, cy, image=self._img_olho())
-        mudo = grav and self.mudo
-        if grav and self.desde:
-            s = int(time.time() - self.desde)
-            txt = "%s %d:%02d" % ({"pc": "PC", "app_pessoal": "AppPessoal", "premiere": "Premiere"}.get(self.quem, ""), s // 60, s % 60)
-            if mudo:          # P20: gravação muda há > 15 s: olho cinza + "SEM SOM" piscando (vermelho / cinza a cada 0,5 s)
-                txt = "SEM SOM %d:%02d" % (s // 60, s % 60)
-            elif self.pausado:
-                txt = "%s PAUSA %d:%02d" % ("PR" if self.quem == "premiere" else "PC", s // 60, s % 60)   # cabe do lado do botão
-            x1 = cx - R - 8
-            cor_txt = ("vermelho" if int(time.time() * 2) % 2 == 0 else "cinza") if mudo else ("amarelo" if amarelo else "branco")
-            cv.create_rectangle(x0, cy - 13, x1, cy + 13, fill="#FFE600" if (amarelo and not mudo) else "#0B0B0D", outline="")
-            cv.create_image((x0 + x1) // 2, cy, image=self._pixel(txt.upper(), cor_txt))
-        elif self.aviso:
-            cv.create_image(cx - R - 8, cy, image=self._pixel("ATALHO OCUPADO", "amarelo"), anchor="e")
+
+    def _d_letreiro(self, cv, a, b):
+        txt, cor = self._letreiro()
+        cv.create_rectangle(a + 2, MARGEM, b - 2, BH - MARGEM, fill="#121217", outline="")
+        if txt:
+            cv.create_image(a + int(8 * F), BH // 2, image=self._pixel(txt.upper(), cor), anchor="w")
+
+    def _d_risco(self, cv, a, b):
+        cx = (a + b) // 2
+        cv.create_rectangle(cx - 1, MARGEM, cx + 1, BH - MARGEM, fill="#2a2a33", outline="")
+
+    def _est(self, zona, base):
+        """o estilo do botão: mais claro com o mouse em cima"""
+        f, cl, es, cor = Painel.EST[base]
+        if self.hover == zona:
+            f = {"#2a2a33": "#3a3a46", "#15151a": "#24242c", "#d6001c": "#ff1e2e", "#2a0006": "#4a0010"}.get(f, f)
+        return f, cl, es, cor
+
+    def _d_botao_ico(self, cv, a, b, ico, cor, base="neutro", ativo=False):
+        f, cl, es, _ = self._est(self._z, base)
+        botao_8bits(cv, a + 2, MARGEM, b - 2, BH - MARGEM, f, cl, es)
+        if ativo:
+            cv.create_rectangle(a + 2, MARGEM, b - 2, BH - MARGEM, outline="#FFE600", width=max(2, int(2 * F)))
+        cv.create_image((a + b) // 2, BH // 2, image=self._icone(ico, cor))
+
+    def _d_pausa(self, cv, a, b):
+        if self.pausado:
+            self._d_botao_ico(cv, a, b, "play", "#ffffff", "vermelho")
+        else:
+            self._d_botao_ico(cv, a, b, "pausa", "#FFD60A", "neutro")
+
+    def _d_pedaco(self, cv, a, b, n, est):
+        f = {"gravando": "#ff1e2e", "vale": "#d6001c", "apagado": "#1a1a20"}[est]
+        if self.hover == ("ped", n) and est != "gravando":
+            f = "#3a3a46" if est == "vale" else "#5a1a24"
+        cv.create_rectangle(a + 2, MARGEM + 2, b - 2, BH - MARGEM - 2, fill=f, outline="#3a3a44" if est == "apagado" else "")
+        if est == "apagado":
+            cv.create_line(a + 5, MARGEM + 5, b - 5, BH - MARGEM - 5, fill="#5b5b63", width=max(1, int(2 * F)))
+        cv.create_image((a + b) // 2, BH // 2, image=self._pixel(str(n), "apagado" if est == "apagado" else "branco", max(2, TXT - 1)))
+
+    def _d_ferr(self, cv, a, b, nome):
+        d = self.desenho
+        ativo = d is not None and d.ferr == nome
+        cor = "#ff1e2e" if nome == "laser" else (CORES_DESENHO[d.cor][1] if (d is not None and nome != "cursor") else "#ffffff")
+        self._d_botao_ico(cv, a, b, nome, cor, "neutro" if not ativo else "mini", ativo=ativo)
+
+    def _d_cor(self, cv, a, b, i):
+        d = self.desenho
+        hexa = CORES_DESENHO[i][1]
+        m = int(4 * F) + MARGEM // 2
+        cv.create_rectangle(a + m // 2, MARGEM + m // 2, b - m // 2, BH - MARGEM - m // 2, fill=hexa, outline="#0a0a0d", width=2)
+        if d is not None and d.cor == i:
+            cv.create_rectangle(a + 1, MARGEM, b - 1, BH - MARGEM, outline="#ffffff", width=max(2, int(2 * F)))
+
+    def _d_botao_txt(self, cv, a, b, txt, base, ico=None, cor_ico=None):
+        f, cl, es, cor = self._est(self._z, base)
+        botao_8bits(cv, a + 2, MARGEM, b - 2, BH - MARGEM, f, cl, es)
+        img = self._pixel(txt, cor)
+        if ico:
+            ic = self._icone(ico, cor_ico)
+            wi, wt = ic.width(), img.width()
+            x0 = (a + b - wi - int(6 * F) - wt) // 2
+            cv.create_image(x0, BH // 2, image=ic, anchor="w")
+            cv.create_image(x0 + wi + int(6 * F), BH // 2, image=img, anchor="w")
+        else:
+            cv.create_image((a + b) // 2, BH // 2, image=img)
 
 
 FLAG_PAINEL = os.path.join(AQUI, "abrir_painel.flag")

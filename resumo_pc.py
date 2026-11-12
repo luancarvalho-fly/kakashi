@@ -44,6 +44,16 @@ def sessao_premiere_da_troca(meta):
     return "`%s`" % melhor[1] if melhor else "(não achei a pasta em premiere\\sessoes: procurar a que começou na mesma hora)"
 
 
+def modo_da_sessao(pasta):
+    """3.0 (12/11): o MODO.json que a barra grava quando ele escolhe RÁPIDO ou PROFUNDO (no olho do Premiere, fica na pasta de cima)"""
+    for p in (pasta, os.path.dirname(pasta.rstrip("\\/"))):
+        try:
+            return json.load(open(os.path.join(p, "MODO.json"), encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+    return None
+
+
 def sem_acento(s):
     return "".join(c for c in unicodedata.normalize("NFKD", s or "") if not unicodedata.combining(c)).lower()
 
@@ -377,6 +387,21 @@ def linha_evento(x, uia_por_clique):
         return "- %s copiou %s: %s · %s%s" % (tt, o, det, x.get("app", ""), (" · de %s" % x["de"]) if x.get("de") else "")
     if tp == "print" and x.get("motivo") == "pagina":
         return "- %s print da página: %s" % (tt, x.get("perto"))
+    # 3.0 (12/11): o DESENHO dele na tela (caneta, seta, caixa, laser) — é anotação dele, não parte do app: diz ONDE olhar
+    if tp == "traco":
+        f = x.get("ferramenta"); cor = "" if f == "laser" else " %s" % x.get("cor", "")
+        alvo = descrever_elemento(x["alvo"]) if x.get("alvo") else "(sem elemento: ver o print)"
+        oq = {"caneta": "riscou", "seta": "apontou com a seta", "caixa": "marcou com a caixa", "laser": "passou o laser"}.get(f, f)
+        cx = x.get("caixa") or [0, 0, 0, 0]
+        return "- %s ✏️ DESENHO %d: %s%s → %s · ponta (%s, %s) · área [%d,%d %dx%d]%s" % (
+            tt, x.get("n", 0), oq, cor, alvo, *(x.get("ponta") or ["?", "?"]), cx[0], cx[1], cx[2] - cx[0], cx[3] - cx[1],
+            " · o Chrome descreve o elemento pelo código na linha «Chrome (traco)»" if x.get("pedido_chrome") else "")
+    if tp == "traco_desfeito":
+        return "- %s ✏️ desfez o desenho %s (ele ainda aparece no vídeo e no print de antes: ignorar)" % (tt, x.get("n"))
+    if tp == "tracos_limpos":
+        return "- %s ✏️ limpou os desenhos (%s)" % (tt, x.get("quantos"))
+    if tp == "print" and x.get("motivo") == "traco":
+        return "- %s print do desenho: %s (inteiro: %s)" % (tt, x.get("perto"), x.get("arquivo"))
     return None
 
 
@@ -455,14 +480,21 @@ def main():
 
     j0 = meta.get("janela_inicial") or {}
     n_cop = sum(1 for e in evs if e.get("tipo") == "copiou")
+    n_des = sum(1 for e in evs if e.get("tipo") == "traco")
+    modo = modo_da_sessao(pasta)
     linhas = ["# Correção KAKASHI (PC) · %s" % meta.get("inicio_local", ""), "",
+              ("**MODO: %s** (ele escolheu na barra ao concluir, %s)" % (modo["modo"].upper().replace("RAPIDO", "RÁPIDO"), modo.get("escolhido_em", "")[11:16])
+               if modo else "**MODO: não escolhido** (perguntar a ele: RÁPIDO ou PROFUNDO — `kakashi_lidas.py modo <pasta> rapido|profundo`)"),
               "duração %s · microfone: %s · janela no atalho: %s — %s" % (mmss(dur), meta.get("microfone"), j0.get("app"), j0.get("titulo")),
               "arquivos: fala.wav (voz) · pc.wav (som do PC) · tela.mp4 (5 q/s, 1920) · eventos.jsonl (inclui o caminho do mouse) · "
               "_prints\\ (nativos, *_perto = recorte 800x500) · _copias\\ · _refs\\ · links.json",
-              "contagem: %d prints nativos · %d elementos sob o mouse · %d elementos do Chrome (código) · %d links · %d cópias · %d cards do AppPessoal" % (
+              "contagem: %d prints nativos · %d elementos sob o mouse · %d elementos do Chrome (código) · %d links · %d cópias · %d cards do AppPessoal · %d desenhos" % (
                   len(prints), sum(1 for e in evs if e.get("tipo") == "sob_mouse"), sum(1 for e in evs if e.get("tipo") == "chrome"),
                   len(links), n_cop,
-                  sum(1 for e in evs if e.get("tipo") == "app_pessoal"))]
+                  sum(1 for e in evs if e.get("tipo") == "app_pessoal"), n_des)]
+    if n_des:
+        linhas.append("DESENHOS (✏️): são anotações DELE por cima da tela, não parte do app — dizem ONDE olhar; o que está errado vem da fala "
+                      "e do que aparece embaixo. Desenho desfeito ainda aparece no vídeo/print: ignorar.")
     if rep:
         linhas.append("REPLAY IGNORADO: 0:00–%s eram os %d s ANTES do atalho (buffer, desligado em 02/11) e ficam fora desta leitura; "
                       "a correção começa em %s." % (mmss(rep), rep, mmss(rep)))

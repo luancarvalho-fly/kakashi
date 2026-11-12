@@ -125,4 +125,22 @@
   };
   addEventListener("mousemove", mexeu, {capture: true, passive: true});
   addEventListener("pointerdown", clicou, {capture: true, passive: true});
+
+  // KAKASHI 3.0 (12/11/2026): «o que está debaixo da ponta do desenho?» — o fundo.js pergunta com o ponto da TELA (DIP); só a
+  // página de cima responde. Ponto da tela → ponto da página: pelo último mouse que passou aqui (tela = origem + página × zoom); sem
+  // nenhum, pela moldura da janela (estimativa).
+  let ultMouse = null;               // o último mouse aqui: tela (screenX/Y, DIP) e página (clientX/Y, px CSS)
+  addEventListener("mousemove", ev => { ultMouse = [ev.screenX, ev.screenY, ev.clientX, ev.clientY]; }, {capture: true, passive: true});
+  const perguntaPonto = (msg, quem, responder) => {
+    if (!ligado || window !== window.top || !msg || msg.tipo !== "descrever-ponto") return;
+    const zoom = window.devicePixelRatio / (msg.escala || 1);          // o zoom da página (Ctrl + / Ctrl -)
+    const borda = (window.outerWidth - window.innerWidth * zoom) / 2;
+    const o = ultMouse ? {x: ultMouse[0] - ultMouse[2] * zoom, y: ultMouse[1] - ultMouse[3] * zoom}
+                       : {x: window.screenX + borda, y: window.screenY + window.outerHeight - window.innerHeight * zoom - borda};
+    const cx = (msg.x - o.x) / zoom, cy = (msg.y - o.y) / zoom;
+    if (cx < 0 || cy < 0 || cx > window.innerWidth || cy > window.innerHeight) { responder({dados: null}); return; }
+    responder({dados: descrever("traco", cx, cy, msg.x, msg.y)});
+  };
+  chrome.runtime.onMessage.addListener(perguntaPonto);
+  addEventListener("kakashi:olho-novo", ev => { if (ev.detail !== eu) chrome.runtime.onMessage.removeListener(perguntaPonto); });
 })();

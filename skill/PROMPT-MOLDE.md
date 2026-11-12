@@ -10,6 +10,14 @@ Opus 5.5 Wrong» (Better Stack, 6:55, que resume o post da Anthropic). Cada regr
 
 ---
 
+## Tamanho: o NECESSÁRIO (12/11/2026, fala do Luan: «prompt curto abre muita margem de erro pra você não fazer o que eu te pedi... o
+prompt tem que ser o necessário, nem pra menos, nem pra mais»)
+- Nem «curto» nem «longo»: cada pedido sai inteiro (regras 3–6) e nada que a pessoa não disse entra (regra 14). Seção sem nada = sai.
+- Toda fala com conteúdo tem DONO no PROMPT: um [mm:ss] numa tarefa / «Não fazer agora» / «Dúvidas» / «Pergunta da pessoa», ou o
+  trecho [m:ss–m:ss] na seção «Fora». Quem confere é o `conferir_prompt.py` da pasta do Kakashi (o sabotador do modo RÁPIDO):
+  `COBERTURA.md` tem que dar «RESULTADO: OK».
+- RÁPIDO: o PROMPT começa com «O que entendi» (2–4 linhas, no lugar da LEITURA-CLAUDE).
+
 ## O que entra e o que sai
 
 - **Entra:** a fala (LEITURA.md / FALA.md), os prints e o elemento do Chrome de cada «aqui», o rastro da timeline, a LEITURA-CLAUDE.md,
@@ -61,8 +69,11 @@ Opus 5.5 Wrong» (Better Stack, 6:55, que resume o post da Anthropic). Cada regr
 ## O molde do PROMPT.md (copiar e preencher)
 
 ```markdown
-# PROMPT — Kakashi <PC|Premiere> <dd/mm hh:mm> (<duração>)[ + <outras sessões juntadas>]
-fonte: LEITURA.md + LEITURA-CLAUDE.md · glossário: <n> trocas · juntou: <sessões>
+# PROMPT — Kakashi <PC|Premiere> <dd/mm hh:mm> (<duração>)[ + <outras sessões juntadas>] · MODO <RÁPIDO|PROFUNDO>
+fonte: LEITURA.md [+ LEITURA-CLAUDE.md no PROFUNDO] · glossário: <n> trocas · juntou: <sessões>
+
+## O que entendi (RÁPIDO; no PROFUNDO isso está na LEITURA-CLAUDE)
+<2–4 linhas: o que a pessoa quer, como entendimento final — sobre o APP, não sobre a gravação>
 
 ## Pergunta da pessoa (responder primeiro, direto)
 - «fala literal» [mm:ss] → <a pergunta reescrita>
@@ -84,6 +95,9 @@ fonte: LEITURA.md + LEITURA-CLAUDE.md · glossário: <n> trocas · juntou: <sess
 - <pergunta curta + o trecho exato a mandar junto>
 
 ## Sugestões (não fazer sem OK)
+
+## Fora (fala sem pedido — dá dono pro conferidor; nunca esconder pedido aqui)
+- [m:ss–m:ss] <o que é: conversa solta / repetição do item 2 / pensando alto>
 
 <conteudo_colado origem="_copias\...">
 ...

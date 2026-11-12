@@ -8,9 +8,15 @@ _transcricao\\, ou o nome da pasta no lidas.json da skill /kakashi.
   python kakashi_lidas.py novas                  → as correções AINDA NÃO LIDAS (PC, Premiere e AppPessoal), da mais nova pra mais velha
   python kakashi_lidas.py marcar <pasta> --chat <id do chat> [--nota "o que virou"]   → marca como lida (LIDA.json + lidas.json)
   python kakashi_lidas.py quem <pasta>           → quem leu essa sessão
-  python kakashi_lidas.py faltando               → sessões de hoje sem LEITURA-CLAUDE.md, PROMPT.md ou SABOTADOR.md (a análise que faltou)
+  python kakashi_lidas.py faltando               → sessões de hoje sem a análise que o modo delas pede
+  python kakashi_lidas.py modo <pasta> rapido|profundo   → grava o MODO.json (quando ele disse o modo no chat e a barra não gravou)
 TRAVA 06/11: marcar com nota final só passa com LEITURA-CLAUDE.md + SABOTADOR.md na pasta; «--nota lendo» reserva sem exigir.
 TRAVA 11/11: gravações a partir de 11/11 19h também precisam do PROMPT.md (passo 4a: a fala reescrita como prompt antes de executar).
+KAKASHI 3.0 (12/11, ele: «você acha que vale a pena ter um sabotador?... o sabotador seria melhor só pra correção pesada mesmo» ·
+«coisa rápida, ou coisa mais profunda... eu que tenho que colocar ali»): o MODO.json que a barra grava muda o que é cobrado:
+  RÁPIDO   → PROMPT.md + COBERTURA.md «RESULTADO: OK» mais nova que o PROMPT (conferir_prompt.py: nenhuma fala ficou sem dono)
+  PROFUNDO → LEITURA-CLAUDE.md + PROMPT.md + SABOTADOR.md (o de sempre)
+  sem modo → o de antes (sessões antigas)
 """
 import datetime, json, os, sys
 
@@ -43,9 +49,10 @@ def ja_lida(p, texto_lidas):
             return "LIDA.json: " + json.load(open(os.path.join(p, "LIDA.json"), encoding="utf-8")).get("chat", "?")
         except Exception:
             return "LIDA.json"
-    for c in (os.path.join(p, "LEITURA-CLAUDE.md"), os.path.join(p, "_transcricao", "LEITURA-CLAUDE.md")):
-        if os.path.isfile(c):
-            return "outro chat já leu (LEITURA-CLAUDE.md)"
+    for nome in ("LEITURA-CLAUDE.md", "PROMPT.md"):          # 3.0: no RÁPIDO não tem LEITURA-CLAUDE; o PROMPT.md também diz «já leu»
+        for c in (os.path.join(p, nome), os.path.join(p, "_transcricao", nome)):
+            if os.path.isfile(c):
+                return "outro chat já leu (%s)" % nome
     if nome and nome in texto_lidas:
         return "lidas.json da skill"
     return ""
@@ -71,8 +78,42 @@ def novas():
     if not out:
         print("nenhuma correção nova (todas já lidas)")
     for m, tipo, p, dur, cont in out:
-        print("%s · %-8s · %s · %s%s" % (datetime.datetime.fromtimestamp(m).strftime("%d/%m %H:%M"), tipo, os.path.basename(p),
-                                        ("%.0f s" % dur) if isinstance(dur, (int, float)) else "?", (" · CONTINUA NO " + cont.upper()) if cont else ""))
+        md = modo(p)
+        print("%s · %-8s · %s · %s · %s%s" % (datetime.datetime.fromtimestamp(m).strftime("%d/%m %H:%M"), tipo, os.path.basename(p),
+                                             ("%.0f s" % dur) if isinstance(dur, (int, float)) else "?",
+                                             ("MODO " + md.upper()) if md else "SEM MODO (perguntar: rápido ou profundo)",
+                                             (" · CONTINUA NO " + cont.upper()) if cont else ""))
+
+
+def modo(p):
+    """3.0 (12/11): «rapido» | «profundo» | None — o MODO.json que a barra do Kakashi grava quando ele escolhe ao concluir"""
+    try:
+        m = json.load(open(os.path.join(p, "MODO.json"), encoding="utf-8")).get("modo")
+        return m if m in ("rapido", "profundo") else None
+    except Exception:
+        return None
+
+
+def gravar_modo(p, md):
+    md = {"rápido": "rapido", "rapido": "rapido", "profundo": "profundo"}.get(md.strip().lower())
+    if not md or not os.path.isdir(p):
+        sys.exit("uso: kakashi_lidas.py modo <pasta> rapido|profundo")
+    d = {"modo": md, "escolhido_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "quem": "chat", "pastas": [p]}
+    json.dump(d, open(os.path.join(p, "MODO.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+    print("modo gravado:", md, "em", p)
+
+
+def cobertura_ok(p):
+    """RÁPIDO: a COBERTURA.md do conferir_prompt.py diz OK e é mais nova que o PROMPT.md (conferiu o PROMPT final)"""
+    for base in (p, os.path.join(p, "_transcricao")):
+        c, pr = os.path.join(base, "COBERTURA.md"), os.path.join(base, "PROMPT.md")
+        if os.path.isfile(c) and os.path.isfile(pr):
+            try:
+                ok = "RESULTADO: OK" in open(c, encoding="utf-8").read(400)
+            except OSError:
+                ok = False
+            return ok and os.path.getmtime(c) >= os.path.getmtime(pr)
+    return False
 
 
 # 11/11 (ele: «rodar um prompt em cima do prompt, para transformar isso num prompt mais eficiente»): o PROMPT.md (passo 4a da skill)
@@ -81,6 +122,11 @@ PROMPT_DESDE = "2026-11-11_19"
 
 
 def exigidos(p):
+    md = modo(p)
+    if md == "rapido":
+        return ("PROMPT.md", "COBERTURA.md")
+    if md == "profundo":
+        return ("LEITURA-CLAUDE.md", "PROMPT.md", "SABOTADOR.md")
     nome = os.path.basename(p.rstrip("\\/"))
     return ("LEITURA-CLAUDE.md", "PROMPT.md", "SABOTADOR.md") if nome[:13] >= PROMPT_DESDE else ("LEITURA-CLAUDE.md", "SABOTADOR.md")
 
@@ -96,12 +142,18 @@ def marcar(p, chat, nota):
     # na pasta. «lendo» (reservar a sessão pra outro chat não pegar) continua livre.
     if nota.strip().lower() != "lendo":
         falta = [n for n in exigidos(p) if not tem(p, n)]
+        if modo(p) == "rapido" and "COBERTURA.md" not in falta and not cobertura_ok(p):
+            falta.append("COBERTURA.md com «RESULTADO: OK» depois do PROMPT final")
         if falta:
-            print("NÃO MARCADA: falta " + " e ".join(falta) + " em " + p)
-            print("  Passo 4: escrever a LEITURA-CLAUDE.md (pedidos com fala literal [mm:ss], erros meus, o que fica, dúvidas).")
+            print("NÃO MARCADA (modo %s): falta %s em %s" % ((modo(p) or "antigo").upper(), " e ".join(falta), p))
+            if "LEITURA-CLAUDE.md" in falta:
+                print("  Passo 4: escrever a LEITURA-CLAUDE.md (pedidos com fala literal [mm:ss], erros meus, o que fica, dúvidas).")
             if "PROMPT.md" in falta:
                 print("  Passo 4a: reescrever a correção em PROMPT.md pelo PROMPT-MOLDE.md da skill (transcrição consertada, pronto quando).")
-            print("  Passo 4c: rodar o sabotador (agente separado) e gravar SABOTADOR.md com os achados e o que mudou na leitura.")
+            if any(f.startswith("COBERTURA") for f in falta):
+                print("  RÁPIDO: rodar o conferir_prompt.py na pasta; fala sem dono = pôr no PROMPT (tarefa ou «Fora») e rodar de novo.")
+            if "SABOTADOR.md" in falta:
+                print("  Passo 4c: rodar o sabotador (agente separado) e gravar SABOTADOR.md com os achados e o que mudou na leitura.")
             sys.exit(1)
     d = {"lida_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "chat": chat, "nota": nota}
     json.dump(d, open(os.path.join(p, "LIDA.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
@@ -144,6 +196,8 @@ def main():
                         print("%-8s %s · falta %s" % (tipo, n, ", ".join(f)))
     elif a[0] == "quem":
         print(ja_lida(a[1], lidas_skill()) or "ninguém leu ainda")
+    elif a[0] == "modo" and len(a) >= 3:
+        gravar_modo(a[1], a[2])
 
 
 if __name__ == "__main__":

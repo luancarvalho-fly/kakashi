@@ -16,9 +16,33 @@ Pasta do Kakashi: `%LOCALAPPDATA%\Programs\Kakashi-Fly\` (abaixo, "a pasta"). Py
    na pasta, ou `LEITURA-CLAUDE.md`, = OUTRO chat já leu: NÃO ler de novo, NÃO refazer o pedido dela.
 2. Ao começar a trabalhar numa sessão: `python kakashi_lidas.py marcar "<pasta da sessão>" --chat <id deste chat> --nota lendo`.
    Marcar LOGO, antes de fazer os pedidos: outro chat aberto pode estar olhando. No fim, marcar de novo com `--nota "<o que virou>"`:
-   **essa marca final só passa com `LEITURA-CLAUDE.md`, `PROMPT.md` (gravações a partir de 11/11/2026 19h) e `SABOTADOR.md` na pasta
-   da sessão** (passo 5). `python kakashi_lidas.py
-   faltando` lista as gravações do dia que ficaram sem essa análise.
+   **essa marca final só passa com os arquivos que o MODO da gravação pede** (seção O MODO, logo abaixo): RÁPIDO = `PROMPT.md` +
+   `COBERTURA.md` «RESULTADO: OK»; PROFUNDO = `LEITURA-CLAUDE.md` + `PROMPT.md` + `SABOTADOR.md`; gravação sem modo (antes de 12/11)
+   = o de antes. `python kakashi_lidas.py faltando` lista as gravações do dia que ficaram sem essa análise.
+
+## O MODO — RÁPIDO × PROFUNDO, quem escolhe é a pessoa (Kakashi 3.0, 12/11/2026)
+Ao concluir, a BARRA do Kakashi (no meio da tela) pergunta «COMO EU LEIO?» RÁPIDO ou PROFUNDO. O clique grava `MODO.json` na pasta da
+gravação e cola `/kakashi rápido` ou `/kakashi profundo`. O modo vem do argumento do /kakashi ou do `MODO.json` (`kakashi_lidas.py
+novas` mostra). **Nunca é o Claude que escolhe:** sem modo → perguntar à pessoa e gravar com `python kakashi_lidas.py modo "<pasta>"
+rapido|profundo`. (Fala do Luan, 12/11: «o sabotador seria melhor só pra correção pesada mesmo... às vezes eu sinto que o Kakashi demora
+muito pra resolver coisas bobas» · «coisa rápida, ou coisa mais profunda... eu que tenho que colocar ali».)
+
+| | RÁPIDO (mudancinha, coisa boba) | PROFUNDO (explicação, edição, ensinamento, gravação longa) |
+|---|---|---|
+| ler | `LEITURA.md` inteira + os prints dos DESENHOS e dos «aqui» + o código do Chrome | tudo do passo 3, cruzando com as gravações antigas que ela citar |
+| escrever | `PROMPT.md` com «O que entendi» no topo (no lugar da LEITURA-CLAUDE) | `LEITURA-CLAUDE.md` → `PROMPT.md` |
+| conferir | `python conferir_prompt.py "<pasta>"` → `COBERTURA.md` «RESULTADO: OK» (toda fala com conteúdo tem dono no PROMPT) | SABOTADOR (passo 5) → `SABOTADOR.md` |
+| nivelar (passo 4: cruzar com as instruções/skills dela) | não | sim |
+| checklist | sim | sim |
+
+O PROMPT do RÁPIDO **não é curto: é o necessário** — cada pedido inteiro com a fala literal [mm:ss] do lado; fala que não pede nada vai
+pra seção «Fora» com o trecho [m:ss–m:ss]. (Fala do Luan, 12/11: «prompt curto abre muita margem de erro pra você não fazer o que eu te
+pedi... o prompt tem que ser o necessário, nem pra menos, nem pra mais».)
+
+**DESENHO:** a barra tem caneta, seta, caixa e laser por cima de qualquer app (Windows). No `LEITURA.md` cada um é uma linha «✏️ DESENHO
+n» com o elemento debaixo da ponta e, no Chrome, a linha «Chrome (traco)» com o elemento pelo código; o print «traco» logo depois mostra
+o desenho. **Desenho é anotação da pessoa, não parte do app: diz ONDE olhar; o que está errado vem da fala e do que aparece embaixo.**
+Traço desfeito ainda aparece no vídeo/print: ignorar. Passo pra reproduzir nunca é «desenhar».
 
 ## 1. Achar a gravação (a MAIS NOVA que a lista deu)
 - **PC** (qualquer janela: Chrome, ARDI, Fly Studio...): `sessoes\<AAAA-MM-DD_HHMMSS>_pc\`.
@@ -87,19 +111,18 @@ minha explicação sobre isso».)
   PARCIAL / NÃO FEITO / AMBÍGUO / DESCARTADO · prova (commit, arquivo:linha ou print). Antes de ler a gravação nova, abrir o checklist:
   o que está PARCIAL ou NÃO FEITO entra na resposta como «continua aberto». (Fala do Luan, 11/11: «aquele checklist de conferência das
   coisas que eu te peço que você tava fazendo, você não tá fazendo».)
-- **Dose da análise**: gravação curta e clara (até ~1 min, um pedido) = `LEITURA.md` + prints + sabotador curto; longa ou confusa = tudo.
-  Os passos não somem, só encolhem. (Fala do Luan, 11/11: «óbvio que não precisa de análise bizarramente completa toda hora, mas você
-  tem que ser inteligente o suficiente pra fazer essa distinção».)
-- **NUNCA DA TRANSCRIÇÃO DIRETO PRO CÓDIGO.** Ordem fixa, em TODA gravação (até as curtas, até em sequência, até com a pessoa com pressa):
-  `LEITURA.md` inteira + prints → cruzar com a gravação antiga que ela citar → `LEITURA-CLAUDE.md` → `PROMPT.md` → sabotador →
-  `SABOTADOR.md` (os achados e o que mudou na leitura) → só então mexer, executando o `PROMPT.md`. (Erro de verdade: 11 gravações seguidas num dia lidas sem leitura escrita nem
+- **Dose da análise = o MODO que a pessoa escolheu** (seção O MODO). MUDOU em 12/11: antes o Claude decidia pela duração.
+- **NUNCA DA TRANSCRIÇÃO DIRETO PRO CÓDIGO.** Em TODA gravação (até as curtas, até em sequência, até com a pessoa com pressa) tem um
+  `PROMPT.md` escrito e conferido ANTES de mexer — RÁPIDO: conferido pelo `conferir_prompt.py`; PROFUNDO: `LEITURA.md` inteira + prints →
+  cruzar com a gravação antiga que ela citar → `LEITURA-CLAUDE.md` → `PROMPT.md` → sabotador → `SABOTADOR.md` (os achados e o que mudou
+  na leitura) → só então mexer, executando o `PROMPT.md`. (Erro de verdade: 11 gravações seguidas num dia lidas sem leitura escrita nem
   sabotador; a pessoa achou os furos depois. Fala do Luan, 06/11: «você tá lendo as correções do Kakashi sem analisar elas antes,
   cara? Será que é por isso que tá passando coisa batida... Você não pode fazer isso».)
 - **Pergunta sobre a gravação vai com o trecho exato**: o arquivo do momento (recorte do áudio e do vídeo, ou o print) junto da
   pergunta, nunca só o minuto. (Fala do Luan, 06/11: «O certo é você me mandar o momento exato da gravação... Tu acha que eu tenho
   memória do homem de ferro?»)
-- **PROMPT LIMPO — a fala vira prompt antes de virar trabalho** (SEMPRE): fala é um prompt ruim (erro de transcrição, sem parâmetro,
-  linguagem solta). Com o `LEITURA-CLAUDE.md` escrito, reescrever a gravação inteira em `PROMPT.md` (na pasta da sessão) seguindo o
+- **PROMPT LIMPO — a fala vira prompt antes de virar trabalho** (SEMPRE, nos dois modos): fala é um prompt ruim (erro de transcrição,
+  sem parâmetro, linguagem solta). Com a leitura feita (PROFUNDO: o `LEITURA-CLAUDE.md`; RÁPIDO: o «O que entendi»), reescrever a gravação inteira em `PROMPT.md` (na pasta da sessão) seguindo o
   `PROMPT-MOLDE.md` desta pasta da skill: transcrição consertada pelo `GLOSSARIO.md` + contexto da tela (cada troca numa tabela, com a
   prova), a demanda inteira numa mensagem só (gravações seguidas do mesmo assunto = um PROMPT), cada pedido = verbo + objeto + onde +
   parâmetros + **«pronto quando»** verificável, «aqui/isso» resolvidos pelo print/elemento, «depois» → Não fazer agora, pergunta da
@@ -107,7 +130,7 @@ minha explicação sobre isso».)
   cada item. Daqui em diante o Claude executa o `PROMPT.md`, não a fala crua. Base: o guia oficial da Anthropic «Prompting Claude
   Opus 5.5». (Fala do Luan, 11/11: «o áudio é um prompt ruim... rodar um prompt em cima do prompt, para transformar isso num prompt
   mais eficiente para rodar a demanda que eu quero».)
-- **SABOTADOR antes de responder** (SEMPRE): com o `LEITURA-CLAUDE.md` e o `PROMPT.md` escritos, um agente SEPARADO lê a fala
+- **SABOTADOR antes de responder** (só no PROFUNDO; no RÁPIDO quem faz esse papel é o `conferir_prompt.py`): com o `LEITURA-CLAUDE.md` e o `PROMPT.md` escritos, um agente SEPARADO lê a fala
   inteira, o `LEITURA.md`, a sua leitura, o PROMPT e as gravações anteriores dos mesmos trechos, e devolve FALTOU · ERRADO ·
   DESCARTADO-PELA-PESSOA · DÚVIDA, cada um com a fala literal e o [mm:ss]; zero achado vale. No PROMPT confere em especial: pedido que
   sumiu na reescrita, parâmetro inventado, troca de transcrição sem prova, «pronto quando» que não prova nada, tarefa não pedida. Confira cada achado na fala original e corrija a leitura ANTES de
