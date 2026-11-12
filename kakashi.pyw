@@ -2449,9 +2449,16 @@ class Tela:
         else:
             self.root.configure(bg=TRANSP); self.root.attributes("-transparentcolor", TRANSP)
         c = cfg()
-        sw = self.root.winfo_screenwidth()
-        # padrão: em cima, no meio, um pouco abaixo da borda (no teste de 12/11 a faixa «PLACA OCUPADA» do medidor cobria y=16)
-        self.cx, self.y = int(c.get("barra_cx", sw // 2)), int(c.get("barra_y", int(64 * F)))
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        # 12/11 16:37 (ele, depois de não ver a barra em cima do site escuro: «onde ficava o olho»): padrão = o canto de baixo, onde o
+        # olho ficava (do lado da bolinha do Whisper; config olho_x/olho_y de antes). A barra cresce PRA ESQUERDA a partir dali (a
+        # ponta direita fica fixa, a largura muda entre gravando e a escolha). Arrastou = vale o lugar dele (barra_cx/barra_y, pelo meio).
+        self.dir = None
+        if "barra_cx" in c:
+            self.cx, self.y = int(c["barra_cx"]), int(c.get("barra_y", int(64 * F)))
+        else:
+            ox, oy = int(c.get("olho_x", sw - int(83 * ESC))), int(c.get("olho_y", sh - int(76 * ESC)))
+            self.dir = min(sw - int(6 * F), ox + int(22 * F)); self.y = oy - BH // 2; self.cx = self.dir - 50
         self.W = 100
         self.cv = tk.Canvas(self.root, width=self.W, height=BH, bg="systemTransparent" if MAC else TRANSP, highlightthickness=0)
         self.cv.pack()
@@ -2483,7 +2490,7 @@ class Tela:
         self.menu.add_command(label="Pausar / continuar", command=self._pausa)
         self.menu.add_command(label="Cancelar a gravação (vai pra descartadas)", command=lambda: self._acao(True))
         self.menu.add_command(label="Abrir o painel do Kakashi", command=lambda: self.abrir_painel())
-        self.menu.add_command(label="Barra de volta pro meio", command=self._centralizar)
+        self.menu.add_command(label="Barra de volta pro canto", command=self._centralizar)
         self.menu.add_separator(); self.menu.add_command(label="Fechar o Kakashi", command=self._sair)
         # a barra NUNCA pega o foco (senão a "janela da frente" vira ela mesma e o /kakashi cola nela): ferramenta + não-ativa
         self.root.update_idletasks()
@@ -2509,14 +2516,19 @@ class Tela:
 
     # ---- lugar
     def _geo(self):
+        if self.dir is not None:                     # presa pela ponta direita (o canto do olho)
+            self.cx = self.dir - self.W // 2
         self.root.geometry("%dx%d+%d+%d" % (self.W, BH, self.cx - self.W // 2, self.y))
 
     def centro(self):
         return self.cx, self.y + BH // 2
 
     def _centralizar(self):
-        self.cx, self.y = self.root.winfo_screenwidth() // 2, int(64 * F); self._geo()
+        """botão direito → «Barra de volta pro canto»: esquece o lugar arrastado e volta pro canto do olho"""
         c = cfg(); c.pop("barra_cx", None); c.pop("barra_y", None); salvar_cfg(c)
+        sw, sh = self.root.winfo_screenwidth(), self.root.winfo_screenheight()
+        ox, oy = int(c.get("olho_x", sw - int(83 * ESC))), int(c.get("olho_y", sh - int(76 * ESC)))
+        self.dir = min(sw - int(6 * F), ox + int(22 * F)); self.y = oy - BH // 2; self._geo()
 
     def topo(self):
         """a barra por cima de tudo (inclusive do pegador do desenho), sem pegar o foco"""
@@ -2648,6 +2660,7 @@ class Tela:
             return
         if abs(e.x_root - x0) + abs(e.y_root - y0) > 5:
             self.arr = (x0, y0, cx, cy, True, zona)
+            self.dir = None                          # arrastou: vale o lugar dele, pelo meio
             self.cx, self.y = cx + e.x_root - x0, cy + e.y_root - y0
             self._geo()
 
