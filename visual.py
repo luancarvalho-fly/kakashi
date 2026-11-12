@@ -136,6 +136,14 @@ def icone(nome, px, cor="#FFFFFF", peso=1.75):
     elif nome == "sair":
         d.arc((4.4 * u, 5.2 * u, 19.6 * u, 20.4 * u), start=-60, end=240, fill=c, width=w)
         _traco(d, P(12, 3.4, 12, 11.6), w, c)
+    elif nome == "recorte":               # SF «crop»: as duas quinas do recorte
+        _traco(d, P(7.0, 2.8, 7.0, 17.0, 21.2, 17.0), w, c)
+        _traco(d, P(2.8, 7.0, 17.0, 7.0, 17.0, 21.2), w, c)
+    elif nome == "colar":                 # SF «doc.on.clipboard»
+        _ret_redondo(d, (5.2 * u, 4.6 * u, 18.8 * u, 21.0 * u), 2.6 * u, w=w, outline=c)
+        _ret_redondo(d, (8.8 * u, 2.8 * u, 15.2 * u, 6.4 * u), 1.4 * u, fill=c)
+        _traco(d, P(8.6, 11.4, 15.4, 11.4), w, c)
+        _traco(d, P(8.6, 15.4, 13.0, 15.4), w, c)
     elif nome == "teclado":
         _ret_redondo(d, (2.8 * u, 6.0 * u, 21.2 * u, 18.0 * u), 2.6 * u, w=w, outline=c)
         _traco(d, P(7.6, 14.2, 16.4, 14.2), w, c)
@@ -295,6 +303,27 @@ def barra(e, F=1.0):
                               t.texto(x + wc / 2, H / 2, "Concluir", COR["preto"], "sb", 13 * F, "mm")), "concluir", "Concluir (= o atalho)")
         add(passo, lambda t, x: _botao_redondo(t, x + passo / 2, H / 2, r_bt, "x", int(14 * F), COR["texto2"], hover=hv == "cancelar"),
             "cancelar", "Cancelar tudo")
+    elif e["modo"] == "captura":           # 12/11: o modo captura (o lugar do Lightshot): ícone · «Captura · N» · Recorte · Colar tudo · X
+        add(30 * F, lambda t, x: t.ico("recorte", x + 15 * F, H / 2, int(17 * F), COR["amarelo"]))
+        txt = "Captura"
+        n = e.get("n", 0)
+        sub = "%d %s" % (n, "item" if n == 1 else "itens")
+        wl = largura_texto(txt, "sb", 13 * F) + largura_texto("99 itens", "r", 12 * F) + 22 * F
+        add(wl, lambda t, x: (t.texto(x + 4 * F, H / 2, txt, COR["texto"], "sb", 13 * F),
+                              t.texto(x + 12 * F + largura_texto(txt, "sb", 13 * F), H / 2 + 0.5 * F, sub, COR["texto2"], "r", 12 * F)))
+        wr = largura_texto("Recorte", "m", 12.5 * F) + 40 * F
+        add(wr, lambda t, x: (t.ret(x + 2 * F, H / 2 - 12 * F, x + wr - 2 * F, H / 2 + 12 * F, 12 * F,
+                                    fill="#3A3A3C" if hv == "recorte" else COR["seg"]),
+                              t.ico("recorte", x + 17 * F, H / 2, int(14 * F), COR["texto"]),
+                              t.texto(x + 28 * F, H / 2, "Recorte", COR["texto"], "m", 12.5 * F)), "recorte", "Recortar um pedaço da tela")
+        add(6 * F)
+        wc = largura_texto("Colar tudo", "sb", 13 * F) + 40 * F
+        add(wc, lambda t, x: (t.ret(x + 2 * F, H / 2 - 12 * F, x + wc - 2 * F, H / 2 + 12 * F, 12 * F,
+                                    fill="#E5E5EA" if hv == "colar" else COR["texto"]),
+                              t.ico("colar", x + 17 * F, H / 2, int(14 * F), COR["preto"]),
+                              t.texto(x + 28 * F, H / 2, "Colar tudo", COR["preto"], "sb", 13 * F)), "colar", "Colar tudo (= Page Down)")
+        add(passo, lambda t, x: _botao_redondo(t, x + passo / 2, H / 2, r_bt, "x", int(14 * F), COR["texto2"], hover=hv == "sair_captura"),
+            "sair_captura", "Sair sem colar")
     else:                                  # a escolha: «Como eu leio?» · Rápido | Profundo · +N · X
         add(6 * F)
         wq = largura_texto("Como eu leio?", "sb", 14 * F) + 16 * F
@@ -333,6 +362,50 @@ def barra(e, F=1.0):
         x += w
     zonas = [(z[0], z[2], z[4], z[5]) for z in t.zonas] + zonas          # os pedaços (zona fina) antes do bloco
     return t.pronta(), zonas, olho_x, int(24 * F)
+
+
+def barra_recorte(e, F=1.0):
+    """a barrinha embaixo do recorte do modo captura: caneta, marca-texto, linha, seta, quadrado · 4 cores · desfazer · Copiar · X
+    e = {"ferr", "cor", "hover"} → (imagem, zonas [(x0, x1, zona, dica)])"""
+    H = 34 * F
+    r_bt, passo, hv = 13 * F, 30 * F, e.get("hover")
+    itens = []
+    add = lambda w, fn=None, z=None, dc=None: itens.append((w, fn, z, dc))     # noqa: E731
+    add(6 * F)
+    for nome, dc in (("caneta", "Caneta"), ("marca", "Marca-texto"), ("linha", "Linha"), ("seta", "Seta"), ("caixa", "Quadrado")):
+        add(passo, lambda t, x, nome=nome: _botao_redondo(t, x + passo / 2, H / 2, r_bt, nome, int(16 * F), COR["texto"],
+                                                           ativo=e.get("ferr") == nome, hover=hv == ("ferr", nome)), ("ferr", nome), dc)
+    add(4 * F)
+    for i, (nome, hexa) in enumerate(CORES_DESENHO):
+        def cor_fn(t, x, i=i, hexa=hexa):
+            cx = x + 10 * F
+            if e.get("cor") == i:
+                t.circ(cx, H / 2, 8.5 * F, outline=COR["texto"], w=1.5 * F)
+            t.circ(cx, H / 2, 5.5 * F, fill=hexa)
+        add(20 * F, cor_fn, ("cor", i), nome.capitalize())
+    add(4 * F)
+    add(passo, lambda t, x: _botao_redondo(t, x + passo / 2, H / 2, r_bt, "desfazer", int(16 * F), COR["texto"], hover=hv == "desfazer"),
+        "desfazer", "Desfazer")
+    add(10 * F, lambda t, x: t.linha(x + 5 * F, H * .28, x + 5 * F, H * .72, COR["borda"], 1 * F))
+    wc = largura_texto("Copiar", "sb", 13 * F) + 38 * F
+    add(wc, lambda t, x: (t.ret(x + 2 * F, H / 2 - 12 * F, x + wc - 2 * F, H / 2 + 12 * F, 12 * F,
+                                fill="#E5E5EA" if hv == "copiar" else COR["texto"]),
+                          t.ico("check", x + 16 * F, H / 2, int(14 * F), COR["preto"]),
+                          t.texto(x + 27 * F, H / 2, "Copiar", COR["preto"], "sb", 13 * F)), "copiar", "Copiar (Enter)")
+    add(passo, lambda t, x: _botao_redondo(t, x + passo / 2, H / 2, r_bt, "x", int(14 * F), COR["texto2"], hover=hv == "sair"),
+        "sair", "Sair (Esc)")
+    add(6 * F)
+    W = sum(w for w, _, _, _ in itens)
+    t = Tela4x(W, H)
+    t.ret(0.5, 0.5, W - 0.5, H - 0.5, 12 * F, fill=COR["fundo"], outline="#48484A", w=1)
+    x, zonas = 0.0, []
+    for w, fn, z, dc in itens:
+        if fn:
+            fn(t, x)
+        if z is not None:
+            zonas.append((x, x + w, z, dc))
+        x += w
+    return t.pronta(), zonas
 
 
 # ------------------------------------------------------------------ a JANELINHA

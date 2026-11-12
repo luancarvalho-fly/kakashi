@@ -2016,10 +2016,11 @@ def thread_atalhos(fila):
     atalho.THREAD_ID = kernel32.GetCurrentThreadId()
 
     def registrar():
-        user32.UnregisterHotKey(None, 1); user32.UnregisterHotKey(None, 2)
+        user32.UnregisterHotKey(None, 1); user32.UnregisterHotKey(None, 2); user32.UnregisterHotKey(None, 3)
         a = atalho.do_config(cfg()); g, c = a["gravar"], a["cancelar"]
         ok1 = bool(user32.RegisterHotKey(None, 1, g["mods"] | MOD_NOREPEAT, g["vk"]))
         ok2 = bool(c and user32.RegisterHotKey(None, 2, c["mods"] | MOD_NOREPEAT, c["vk"]))
+        user32.RegisterHotKey(None, 3, MOD_NOREPEAT, 0x22)          # 12/11: Page Down = modo captura (o lugar do Lightshot)
         if a["erro"]:
             fila.put(("erro", a["erro"]))
         if not ok1:
@@ -2030,11 +2031,11 @@ def thread_atalhos(fila):
     registrar()
     while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) != 0:
         if msg.message == WM_HOTKEY:
-            fila.put(("cancelar" if msg.wParam == 2 else "alternar", None))
+            fila.put({1: ("alternar", None), 2: ("cancelar", None), 3: ("captura", None)}.get(msg.wParam, ("alternar", None)))
         elif msg.message == atalho.WM_RECARREGAR:
             registrar()
         elif msg.message == atalho.WM_SOLTAR:
-            user32.UnregisterHotKey(None, 1); user32.UnregisterHotKey(None, 2)
+            user32.UnregisterHotKey(None, 1); user32.UnregisterHotKey(None, 2); user32.UnregisterHotKey(None, 3)
 
 
 # ---------- o Sharingan ----------
@@ -2413,6 +2414,7 @@ class Tela:
         self.painel = None
         self.quem = None; self.desde = None; self.aviso = None; self.pisca = False; self.mudo = False; self.ult_estado = 0
         self.pausado = False; self.escolha = None
+        self.captura = None; self.recorte = None     # 12/11: o modo captura (Page Down) e o recorte aberto
         self.zonas = []; self.hover = None; self.arr = None; self._z = None; self._dicas = []
         self.cv.bind("<ButtonPress-1>", self._apertou); self.cv.bind("<B1-Motion>", self._arrastou)
         self.cv.bind("<ButtonRelease-1>", self._soltou); self.cv.bind("<Button-3>", self._menu)
@@ -2500,7 +2502,7 @@ class Tela:
         # girando, vai ficar... o olho com sangue... aquela animaçãozinha»): gira = gravando e não pausado; pausou = a animação de
         # desligar até o olho com sangue, e volta a ligar ao continuar
         grav = bool(self.quem) and not self.pausado
-        fica = bool(self.quem) or bool(self.escolha)  # 3.0: esperando a escolha a barra fica
+        fica = bool(self.quem) or bool(self.escolha) or self.captura is not None  # 3.0: esperando a escolha / no modo captura, fica
         n_lig = len(self.olho["ligar"])
         if self.modo == "escondido":
             if fica:
@@ -2571,6 +2573,12 @@ class Tela:
             self._acao(True)
         elif zona == "pausa":
             self._pausa()
+        elif zona == "recorte":
+            self._abrir_recorte()
+        elif zona == "colar":
+            self.captura_fim(True)
+        elif zona == "sair_captura":
+            self.captura_fim(False)
         elif zona in ("rapido", "profundo"):
             self._escolher(zona)
         elif zona == "descartar":
@@ -2639,6 +2647,7 @@ class Tela:
             while True:
                 tipo, info = self.fila.get_nowait()
                 if tipo == "erro": self.aviso = info; log(info)
+                elif tipo == "captura": self.captura_alternar()
                 else: self._acao(tipo == "cancelar")
         except queue.Empty:
             pass
@@ -2753,7 +2762,8 @@ class Tela:
         d = self.desenho
         z = self.hover
         dica = next((dc for _, _, zz, dc in self._dicas if zz == z), None) if (z is not None and self.quem) else None
-        e = {"modo": "grav" if self.quem else "escolha", "hover": z, "dica": dica, "desenho": d is not None,
+        modo = "grav" if self.quem else ("captura" if self.captura is not None else "escolha")
+        e = {"modo": modo, "hover": z, "dica": dica, "desenho": d is not None, "n": self.captura.n() if self.captura is not None else 0,
              "flash": time.time() < getattr(self, "flash_ate", 0) and int(time.time() * 4) % 2 == 0}
         if self.quem:
             s = int(time.time() - self.desde) if self.desde else 0
@@ -2797,6 +2807,68 @@ class Tela:
 
     def _zona_em(self, x):
         return next((z for x0, x1, z in self.zonas if x0 <= x < x1), None)     # os pedaços vêm antes do bloco deles
+
+    # ---- 12/11: o MODO CAPTURA (Page Down), o lugar do Lightshot — as peças moram no captura.py
+    def captura_alternar(self):
+        """Page Down: liga (abre o recorte na hora) / desliga (cola tudo)"""
+        if MAC:
+            return
+        if self.captura is None:
+            import captura
+            self.captura = captura.Captura(os.path.join(SESSOES, "_capturas"), log)
+            self._ass = None
+            self._abrir_recorte()
+        else:
+            self.captura_fim(True)
+
+    def _abrir_recorte(self):
+        if self.recorte is not None or self.captura is None:
+            return
+        import captura
+        try:
+            self.recorte = captura.Recorte(tk, self.root, self._recorte_pronto, self.F)
+        except Exception as e:
+            log("captura/recorte: %r" % e); self.recorte = None
+
+    def _recorte_pronto(self, im):
+        self.recorte = None
+        if im is not None and self.captura is not None:
+            self.captura.adicionar_print(im)
+        self._ass = None
+
+    def captura_fim(self, colar=True):
+        """desliga o modo: os ARQUIVOS colados como anexo e depois os links/textos (escolha dele, 12/11: «colar em massa»)"""
+        if self.recorte is not None:                 # recorte aberto: o que está desenhado vira o último print
+            r, self.recorte = self.recorte, None
+            if r.caixa is not None and colar:
+                r.copiar()
+            else:
+                r.fechar(None)
+        cap, self.captura = self.captura, None
+        self._ass = None
+        if cap is None:
+            return
+
+        def fim():
+            import captura
+            arquivos, texto = cap.concluir()
+            if not colar or not (arquivos or texto):
+                return
+            fim_ = time.time() + 3                    # espera ele soltar o Page Down
+            while time.time() < fim_ and any(_u32.GetAsyncKeyState(vk) & 0x8000 for vk in (0x22, 0x11, 0x10, 0x12)):   # Page Down primeiro
+                time.sleep(0.03)
+            pode_colar = "premiere" not in janela_frente()["app"].lower()   # no Premiere, Ctrl+V cola clipe: só copia
+            if arquivos:
+                captura.copiar_arquivos(arquivos)
+                if pode_colar:
+                    captura.colar()
+                    time.sleep(0.9)
+            if texto and (pode_colar or not arquivos):
+                captura.copiar_texto(texto)
+                if pode_colar:
+                    captura.colar()
+            log("captura: colou %d arquivos%s" % (len(arquivos), " + texto" if texto else ""))
+        threading.Thread(target=fim, daemon=True).start()
 
     def mudar_escala(self, passo):
         """− / + da janelinha: o tamanho da barra (config.json "barra_escala", 0,6–2,0), na hora"""
