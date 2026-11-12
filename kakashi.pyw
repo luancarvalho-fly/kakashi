@@ -2774,6 +2774,11 @@ class Tela:
 
     def _ler_estado(self):
         q, d = self.k.estado()
+        if q and not self.quem:
+            # 12/11 16:31 (ele: «o atalho não funcionou... eu tive que abrir o Kakashi e mexer lá»): o atalho FUNCIONOU (16:31:12
+            # começou com o Chrome na frente), mas a barra cinza em cima do site escuro não foi vista; ele apertou de novo (concluiu
+            # 10 s depois). Agora, ao começar, a barra pisca a borda branca 2 s e aparece mais embaixo da borda da tela.
+            self.flash_ate = time.time() + 2.0
         self.quem, self.desde = q, d
         self.pausado = (q == "pc" and self.k.pc is not None and self.k.pc.pausado) or (q == "premiere" and getattr(self.k, "prem_pausado", False))
         recente, mudo = self.k.medir_voz() if q else (True, 0.0)
@@ -2891,8 +2896,15 @@ class Tela:
     def _assinatura(self, itens, W):
         """tudo que aparece na barra, menos o quadro do Sharingan: igual = não redesenha (só troca a imagem do olho)"""
         d = self.desenho
-        return (W, tuple(z for _, z, _, _ in itens), self.hover, self._letreiro(), self.pausado, self.mudo,
+        return (W, tuple(z for _, z, _, _ in itens), self.hover, self._letreiro(), self.pausado, self.mudo, self._borda(),
                 (d.ferr, d.cor) if d is not None else None, tuple(self._pedacos()), self.pisca and int(time.time() * 2) % 2 == 0)
+
+    def _borda(self):
+        """a cor da borda da barra: branca piscando nos 2 s depois de começar (pra ele ver que o atalho pegou); depois, cinza visível
+        em cima de site escuro (#48484A; o #2C2C2E sumia no Fly X-tudo)"""
+        if time.time() < getattr(self, "flash_ate", 0) and int(time.time() * 4) % 2 == 0:
+            return COR["texto"]
+        return "#48484A"
 
     def _desenhar(self):
         itens = self._itens()
@@ -2907,7 +2919,12 @@ class Tela:
         self._ass = ass
         cv = self.cv; cv.delete("all"); self.zonas = []; self._id_olho = None
         self._dicas = [(x0, x1, z, dc) for x0, x1, z, dc in getattr(self, "_zonas_ped", [])]
-        self._capsula(cv, 0, 0, W - 1, BH - 1, int(11 * F), COR["fundo"], COR["borda"])
+        borda = self._borda()
+        if borda == COR["texto"]:                   # piscando ao começar: borda de 2 px
+            self._capsula(cv, 0, 0, W - 1, BH - 1, int(11 * F), borda)
+            self._capsula(cv, 2, 2, W - 3, BH - 3, int(11 * F) - 2, COR["fundo"])
+        else:
+            self._capsula(cv, 0, 0, W - 1, BH - 1, int(11 * F), COR["fundo"], borda)
         x = 0
         for w, zona, dica, f in itens:
             self._z = zona
