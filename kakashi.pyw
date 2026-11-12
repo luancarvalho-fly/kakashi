@@ -2982,7 +2982,7 @@ class Painel:
 
     # ---- o que pode mudar no pacote do time (atalho.py e atualizar.py entram aqui)
     def legenda(self):
-        return atalho.legenda(cfg()).replace(" GRAVA", " grava").replace(" CANCELA", " cancela")   # pacote da Fly
+        return atalho.legenda(cfg()).replace(" GRAVA", " grava").replace(" CANCELA", " cancela").replace(" CAPTURA", " captura")   # pacote da Fly
 
     def botoes_extra(self):
         """[(zona, rótulo, ícone)] a mais no pé (o pacote do time põe TROCAR O ATALHO e ATUALIZAÇÃO)"""
