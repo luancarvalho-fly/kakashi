@@ -247,6 +247,49 @@ async function baixar(url) {
     return { ok: true, dados: { dataUrl, tipo: b.type, tamanho: b.size } };
   }, [FLY_API, FLY_IP, url])) || { ok: false, erro: "a aba do Fly não respondeu" };
 }
+/* 13/11/2026 — SEPARADOR (botão «Separar» da bancada de Sonoplastia do Fly X-tudo). Ele: «sim, separar unitário pela geração» · «vê se
+   não tem nenhuma vulnerabilidade, igual o Rolf tinha reportado... vai rodar no meu PC aqui... só para o Plexus, e pra minha utilização».
+   O pedido vem SÓ do Fly X-tudo, com o token da ponte (conferido abaixo, igual às rotas do Fly), e eu repasso pro servidor local
+   127.0.0.1:7817 (apps\TANDERA\separador), que só existe no PC dele: nos outros PCs não tem servidor → «indisponível» e o botão nem
+   aparece. O servidor confere Host, a Origin desta extensão e o segredo dele (pareado aqui uma vez, guardado em chrome.storage.local,
+   nunca vai pra página). Antes de repassar eu também confiro: fonte só do armazenamento da ARDI ou da pasta /x-studio/vlogs do site,
+   envio só pros endereços assinados do mesmo armazenamento. Nada de URL ou caminho livre. */
+const SEPARADOR = "http://127.0.0.1:7817";
+const ARMAZEM_ARDI = "uppinfbftdvxulabfwvy.supabase.co";
+function fonteSeparavel(src) {
+  if (typeof src !== "string" || src.length > 1000) return false;
+  if (src.startsWith("/x-studio/vlogs/")) return !/(^|[\\/])\.\.([\\/]|$)/.test(decodeURIComponent(src)) && /\.(m4a|mp4|wav|flac)(\?|$)/i.test(src);
+  let u; try { u = new URL(src); } catch (e) { return false; }
+  return u.protocol === "https:" && u.hostname === ARMAZEM_ARDI && !u.port && !u.username && u.pathname.startsWith("/storage/v1/object/public/media/") && !u.pathname.includes("..");
+}
+function envioPermitido(url) {
+  let u; try { u = new URL(url); } catch (e) { return false; }
+  return u.protocol === "https:" && u.hostname === ARMAZEM_ARDI && !u.port && !u.username && u.pathname.startsWith("/storage/v1/object/") && !u.pathname.includes("..");
+}
+async function separadorSegredo(renovar) {
+  const g = await chrome.storage.local.get("separadorSegredo");
+  if (g.separadorSegredo && !renovar) return g.separadorSegredo;
+  // tudo POST com JSON: num GET o Chrome não manda o Origin da extensão, e é ele que o separador confere
+  const r = await fetch(SEPARADOR + "/par", { method: "POST", cache: "no-store", headers: { "Content-Type": "application/json" }, body: "{}" });
+  const j = r.ok ? await r.json() : null;
+  if (!j || typeof j.segredo !== "string") throw new Error("o separador não pareou");
+  await chrome.storage.local.set({ separadorSegredo: j.segredo });
+  return j.segredo;
+}
+async function separador(caminho, corpo) {
+  const vai = async (renovar) => fetch(SEPARADOR + caminho, { method: "POST", cache: "no-store", headers: { "X-Separador": await separadorSegredo(renovar), "Content-Type": "application/json" }, body: JSON.stringify(corpo || {}) });
+  let r;
+  try { r = await vai(false); if (r.status === 401) r = await vai(true); }
+  catch (e) { return { ok: false, erro: "indisponível: o separador só roda no PC do Luan, com o servidor dele ligado" }; }
+  let j = null; try { j = await r.json(); } catch (e) {}
+  return r.ok && j && j.ok ? { ok: true, dados: j } : { ok: false, status: r.status, erro: (j && j.erro) || ("separador " + r.status) };
+}
+function separar(a) {
+  if (!fonteSeparavel(a.src)) return Promise.resolve({ ok: false, erro: "fonte fora do permitido (só geração do armazenamento da ARDI ou som do próprio site)" });
+  const ups = a.uploads || {};
+  if (!["voz", "musica", "efeitos"].every((k) => typeof ups[k] === "string" && envioPermitido(ups[k]))) return Promise.resolve({ ok: false, erro: "envio fora do armazenamento da ARDI" });
+  return separador("/separar", { src: a.src, uploads: { voz: ups.voz, musica: ups.musica, efeitos: ups.efeitos } });
+}
 /* 11/11/2026 (auditoria; ele: «Pode começar»): SEGREDO DA PONTE. Só a origem não bastava — qualquer código que rodasse no X-tudo (deploy
    comprometido, dependência maliciosa, XSS) ou qualquer programa na porta 3007 do PC gastava o crédito do Fly em nome dele. Agora todo
    pedido precisa trazer o token das opções da extensão (opcoes.html, chrome.storage.local «ponteSegredo», 32 bytes aleatórios). Vazio ou
@@ -272,6 +315,9 @@ chrome.runtime.onMessage.addListener((msg, quem, responder) => {
       : msg.op === "subirRef" ? subirRef(String(a.url || ""), a.nome, origem)
       : msg.op === "baixar" ? baixar(String(a.url || ""))
       : msg.op === "ola" ? flyApi("GET", "/v1/auth/session/verify")
+      : msg.op === "separar-ola" ? separador("/ola")
+      : msg.op === "separar" ? separar(a)
+      : msg.op === "separar-estado" ? (/^[0-9a-f]{16}$/.test(String(a.job || "")) ? separador("/estado", { job: String(a.job) }) : Promise.resolve({ ok: false, erro: "job inválido" }))
       : Promise.resolve({ ok: false, erro: "op desconhecida" });
     fazer.then(responder, (e) => responder({ ok: false, erro: String(e && e.message || e) }));
   }, () => responder({ ok: false, erro: "segredo inválido" }));
