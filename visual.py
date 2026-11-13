@@ -513,11 +513,25 @@ def painel(e, F=1.0):
             xr -= 28 * F
         xr -= 4 * F
         if g.get("modo"):
-            txt = "Rápido" if g["modo"] == "rapido" else "Profundo"
-            wchip = largura_texto(txt, "m", 11 * F) + 18 * F
-            t.ret(xr - wchip, cy - 10 * F, xr, cy + 10 * F, 10 * F, fill=COR["seg"])
-            t.texto(xr - wchip / 2, cy, txt, COR["texto"], "m", 11 * F, "mm")
-            xr -= wchip + 6 * F
+            # 13/11 (ele: «deveria ter como eu clicar ali no profundo e mudar pra rápido... aquele slidezinho... que vai de um lado pro
+            # outro, pro que tá escolhido. Caso eu tenha apertado por acidente»): o chip virou um seletor de dois lados; o lado
+            # escolhido fica aceso e o outro é clicável (troca o MODO.json, não cola nada)
+            wr, wp = largura_texto("Rápido", "m", 11 * F) + 16 * F, largura_texto("Profundo", "m", 11 * F) + 16 * F
+            x0 = xr - wr - wp - 4 * F
+            t.ret(x0, cy - 11 * F, xr, cy + 11 * F, 11 * F, fill=COR["seg"], outline="#48484A", w=1)
+            xa = x0 + 2 * F
+            for txt, w, z in (("Rápido", wr, "rapido"), ("Profundo", wp, "profundo")):
+                if g["modo"] == z:
+                    t.ret(xa, cy - 9 * F, xa + w, cy + 9 * F, 9 * F, fill=COR["seg_sel"])
+                    t.texto(xa + w / 2, cy, txt, COR["texto"], "sb", 11 * F, "mm")
+                else:
+                    zz = ("trocamodo", i, z)
+                    if hv == zz:
+                        t.ret(xa, cy - 9 * F, xa + w, cy + 9 * F, 9 * F, fill="#3A3A3C")
+                    t.texto(xa + w / 2, cy, txt, COR["texto2"], "m", 11 * F, "mm")
+                    t.zona(xa, yy, xa + w, yy + 44 * F, zz, "Trocar pra %s (se apertou o outro sem querer)" % txt.lower())
+                xa += w
+            xr = x0 - 6 * F
             if g.get("lida"):
                 t.ico("check", xr - 8 * F, cy, int(13 * F), COR["verde"])
                 t.zona(xr - 16 * F, yy, xr, yy + 44 * F, ("lida", i), "O Claude já leu")

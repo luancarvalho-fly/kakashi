@@ -2457,6 +2457,16 @@ class Tela:
     def _geo(self):
         if self.dir is not None:                     # presa pela ponta direita (o canto do olho)
             self.cx = self.dir - self.W // 2
+        # 13/11 15:24 (ele: «a barra não tá aparecendo... Eu tinha colocado ela aqui em cima da barra de ferramenta»): o lugar arrastado
+        # tinha ficado em y=2119, DENTRO da barra de tarefas do Windows (2112–2160) e meio pra fora da tela — a barra de tarefas cobria
+        # tudo. A barra nunca passa da área útil: encosta logo acima da barra de tarefas
+        if not MAC:
+            try:
+                r = ctypes.wintypes.RECT()
+                if ctypes.windll.user32.SystemParametersInfoW(0x0030, 0, ctypes.byref(r), 0):   # SPI_GETWORKAREA
+                    self.y = max(r.top, min(self.y, r.bottom - self.H - int(4 * F)))
+            except Exception as e:
+                log("barra/area util: %r" % e)
         self.root.geometry("%dx%d+%d+%d" % (self.W, self.H, self.cx - self.W // 2, self.y))
 
     def centro(self):
@@ -3145,6 +3155,8 @@ class Painel:
             threading.Thread(target=lambda: (self.k.alternar_pedaco(z[1]), t._forcar()), daemon=True).start()
         elif isinstance(z, tuple) and z[0] in ("rapido", "profundo") and z[1] < len(self.lista):
             self._modo(self.lista[z[1]], z[0])
+        elif isinstance(z, tuple) and z[0] == "trocamodo" and z[1] < len(self.lista):
+            self._trocar_modo(self.lista[z[1]], z[2])
         elif isinstance(z, tuple) and z[0] == "abrir" and z[1] < len(self.lista):
             os.startfile(self.lista[z[1]]["pasta"])
         elif isinstance(z, tuple) and z[0] == "descartar" and z[1] < len(self.lista):
@@ -3174,6 +3186,32 @@ class Painel:
         threading.Thread(target=colar_kakashi, args=(False, texto), daemon=True).start()
         log("janelinha: %s → %s (copiado)" % (os.path.basename(g["pasta"]), modo.upper()))
         self.avisar("%s · «%s» copiado: cole no Claude" % ("Rápido" if modo == "rapido" else "Profundo", texto))
+        self.montar_lista(forcar=True)
+
+    def _trocar_modo(self, g, modo):
+        """13/11: o modo já escolhido muda pelo seletor da lista (ele apertou Profundo sem querer). Troca o MODO.json em todas as pastas
+        da mesma correção (PC → Premiere: as duas) e não cola nada; se o Claude já leu, a leitura feita não muda"""
+        arq = os.path.join(g["pasta"], "MODO.json")
+        try:
+            d = json.load(open(arq, encoding="utf-8"))
+        except (OSError, ValueError):
+            d = {}
+        antes = d.get("modo")
+        pastas = [p for p in (d.get("pastas") or [g["pasta"]]) if os.path.isdir(p)] or [g["pasta"]]
+        d.update({"modo": modo, "trocado_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "trocado_de": antes})
+        for p in pastas:
+            try:
+                dp = dict(d)
+                try:
+                    dp = dict(json.load(open(os.path.join(p, "MODO.json"), encoding="utf-8")), **{k: d[k] for k in ("modo", "trocado_em", "trocado_de")})
+                except (OSError, ValueError):
+                    pass
+                json.dump(dp, open(os.path.join(p, "MODO.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
+            except OSError as ex:
+                self.avisar("Não trocou o modo: %s" % ex); return
+        log("janelinha: modo trocado %s → %s em %s" % (antes, modo, ", ".join(os.path.basename(p) for p in pastas)))
+        lida = " (o Claude já leu: a leitura feita fica)" if g.get("lida") else ""
+        self.avisar("Modo trocado pra %s%s" % ("Rápido" if modo == "rapido" else "Profundo", lida))
         self.montar_lista(forcar=True)
 
     def _descartar(self, g):
