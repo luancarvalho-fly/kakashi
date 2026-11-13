@@ -288,7 +288,10 @@ function separar(a) {
   if (!fonteSeparavel(a.src)) return Promise.resolve({ ok: false, erro: "fonte fora do permitido (só geração do armazenamento da ARDI ou som do próprio site)" });
   const ups = a.uploads || {};
   if (!["voz", "musica", "efeitos"].every((k) => typeof ups[k] === "string" && envioPermitido(ups[k]))) return Promise.resolve({ ok: false, erro: "envio fora do armazenamento da ARDI" });
-  return separador("/separar", { src: a.src, uploads: { voz: ups.voz, musica: ups.musica, efeitos: ups.efeitos } });
+  // 13/11 ~17h40 (ele): a separação é do TRECHO do clipe na bancada — onde começa no arquivo e quanto dura, em segundos
+  const ini = Number(a.ini), dur = Number(a.dur);
+  if (!Number.isFinite(ini) || !Number.isFinite(dur) || ini < 0 || ini > 7200 || dur <= 0 || dur > 600) return Promise.resolve({ ok: false, erro: "trecho inválido" });
+  return separador("/separar", { src: a.src, ini: ini, dur: dur, uploads: { voz: ups.voz, musica: ups.musica, efeitos: ups.efeitos } });
 }
 /* 11/11/2026 (auditoria; ele: «Pode começar»): SEGREDO DA PONTE. Só a origem não bastava — qualquer código que rodasse no X-tudo (deploy
    comprometido, dependência maliciosa, XSS) ou qualquer programa na porta 3007 do PC gastava o crédito do Fly em nome dele. Agora todo
