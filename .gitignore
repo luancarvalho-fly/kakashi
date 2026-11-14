@@ -3,8 +3,10 @@
 __pycache__/
 *.pyc
 som_mac/som_do_mac
+som_mac/som_do_mac.fonte.sha256
 *-launchd.log
 *.log
 *.trava
 abrir_painel.flag
 perfil.json
+escolhas_pendentes.json

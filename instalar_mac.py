@@ -22,7 +22,7 @@ O que faz, peça por peça:
     os LaunchAgents antigos feitos à mão que apontam pra ESTA pasta são desligados e guardados com «.antes-instalador»;
  8. a skill /kakashi no Claude Code com os caminhos do Mac;
  9. lembra as permissões (Gravação de Tela, Acessibilidade, Microfone, Automação) — só a pessoa libera, nos Ajustes."""
-import datetime, glob, json, os, plistlib, shutil, subprocess, sys, tempfile
+import datetime, glob, hashlib, json, os, plistlib, re, shutil, subprocess, sys, tempfile
 
 UPIA_MAC = ("/Library/Application Support/Adobe/Adobe Desktop Common/RemoteComponents/UPI/UnifiedPluginInstallerAgent/"
             "UnifiedPluginInstallerAgent.app/Contents/MacOS/UnifiedPluginInstallerAgent")
@@ -71,13 +71,27 @@ def compilar_som(dest):
     exe = os.path.join(dest, "som_mac", "som_do_mac")
     if not os.path.isfile(src) or not shutil.which("swiftc"):
         return False
-    if os.path.isfile(exe) and os.path.getmtime(exe) >= os.path.getmtime(src):
-        return True
+    # 14/11 (Claude do Gu): pela DATA, o clone novo (o .swift com a data do clone) recompilava à toa, e binário novo = o macOS pede
+    # de novo a permissão de gravar o som. Agora pelo CONTEÚDO: o hash do .swift fica ao lado do binário.
+    marca = exe + ".fonte.sha256"
+    h = hashlib.sha256(open(src, "rb").read()).hexdigest()
+    existia = os.path.isfile(exe)
+    if existia:
+        antes = open(marca, encoding="utf-8").read().strip() if os.path.isfile(marca) else None
+        if antes == h:
+            return True
+        if antes is None:          # binário de antes desta regra (já liberado no macOS): vale como compilado deste fonte
+            open(marca, "w", encoding="utf-8").write(h + "\n")
+            print("  som do Mac: binário que já estava mantido (marquei o fonte; recompila só quando o .swift mudar)")
+            return True
     r = subprocess.run(["swiftc", "-O", "-o", exe, src], capture_output=True, text=True)
     if r.returncode != 0:
         print("  AVISO: o som do Mac não compilou:", (r.stdout + r.stderr).strip()[-300:])
         return False
-    print("  som do Mac compilado (som_mac/som_do_mac)")
+    open(marca, "w", encoding="utf-8").write(h + "\n")
+    print("  som do Mac compilado (som_mac/som_do_mac)%s" % (" — o .swift mudou: o macOS pode pedir de novo a permissão de gravar o "
+                                                            "som (Ajustes → Privacidade → Gravação de Tela e Áudio do Sistema)"
+                                                            if existia else ""))
     return True
 
 
@@ -180,6 +194,7 @@ def criar_app(dest, py):
 def _plist(rotulo, py, script, pasta, log):
     return {"Label": rotulo, "ProgramArguments": [py, script], "WorkingDirectory": pasta, "RunAtLoad": True,
             "KeepAlive": {"SuccessfulExit": False}, "ThrottleInterval": 10,
+            "ProcessType": "Interactive",       # 14/11 (Claude do Gu): os feitos à mão tinham; sem ele o macOS pode frear a gravação
             "EnvironmentVariables": {"PYTHONUTF8": "1", "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"},
             "StandardOutPath": log, "StandardErrorPath": log}
 
@@ -233,30 +248,84 @@ def reiniciar(com_premiere):
 
 
 # ---------------------------------------------------------------- a skill /kakashi
-def instalar_skill(dest, trocar, marca):
+GUARDADAS = os.path.expanduser("~/.claude/skills-guardadas")     # 14/11 (Claude do Gu): guardar DENTRO de skills/ = 2 skills /kakashi
+
+
+def _guardar(caminho):
+    """skill antiga → ~/.claude/skills-guardadas/<nome>.antiga-<data> (fora de skills/: o Claude Code não vê duas /kakashi)"""
+    os.makedirs(GUARDADAS, exist_ok=True)
+    nome = os.path.basename(caminho)
+    if ".antiga-" not in nome:                 # a que estava em uso ganha a data; a que já era antiga fica com o nome dela
+        nome += ".antiga-" + datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    dest, k = os.path.join(GUARDADAS, nome), 2
+    while os.path.exists(dest):                # nunca dentro de outra (shutil.move numa pasta que existe = vai pra dentro)
+        dest, k = os.path.join(GUARDADAS, "%s-%d" % (nome, k)), k + 1
+    shutil.move(caminho, dest)
+    return dest
+
+
+def texto_mac(txt, dest, nome_at):
+    """a skill do Windows com os caminhos e o jeito do Mac (14/11: antes só ia um aviso «troque \\ por /» no topo do SKILL.md)"""
+    tecla = nome_at.upper()
+    fn = ("fn+%s" % tecla) if re.fullmatch(r"F\d{1,2}", tecla) else tecla
+    pares = [
+        ("`%LOCALAPPDATA%\\Programs\\Kakashi-Fly\\`", "`%s/`" % dest),
+        ("%LOCALAPPDATA%\\Programs\\Kakashi-Fly", dest),
+        (".venv\\Scripts\\python.exe", ".venv/bin/python"),
+        ("o padrão é Ctrl+Page Down, e cada um escolhe o seu",
+         "neste Mac é %s (no teclado do Mac: %s; com Shift junto, cancela), e cada um escolhe o seu" % (tecla, fn)),
+        ("botão ATUALIZAR na janelinha (atalho KAKASHI na área de trabalho)",
+         "botão de atualizar na janelinha (app KAKASHI, no Launchpad/Spotlight) ou `.venv/bin/python atualizar.py --instalar` na pasta"),
+        ("(atalho KAKASHI na área de trabalho)", "(app KAKASHI, no Launchpad/Spotlight)"),
+        ("por cima de qualquer app (Windows).", "por cima de qualquer app (só no Windows por enquanto: no Mac a barra não desenha)."),
+    ]
+    for a, b in pares:
+        txt = txt.replace(a, b)
+    # o resto: caminho com \ dentro de crase vira / (só dentro das crases: fora delas o \ pode ser texto)
+    txt = re.sub(r"`[^`\n]*\\[^`\n]*`", lambda m: m.group(0).replace("\\", "/"), txt)
+    return txt
+
+
+def instalar_skill(dest, trocar, marca, nome_at="F1"):
+    """a pasta skill/ INTEIRA (SKILL.md cita GLOSSARIO.md e PROMPT-MOLDE.md «desta pasta da skill») com o texto do Mac em todo .md.
+    A que já estava (mesmo a do pacote, que pode ter ajuste à mão) vai pra ~/.claude/skills-guardadas se mudar alguma coisa."""
     alvo = os.path.expanduser("~/.claude/skills/kakashi")
+    base = os.path.dirname(alvo)
+    for velha in [os.path.join(base, x) for x in (os.listdir(base) if os.path.isdir(base) else []) if x.startswith("kakashi.antiga-")]:
+        print("  skill antiga que estava dentro de skills/ (o Claude Code via duas /kakashi) → %s" % _guardar(velha))
     if os.path.isdir(alvo) and not os.path.exists(os.path.join(alvo, marca)):
         if not trocar:
             print("  SKILL: já existe uma /kakashi neste Claude Code que NÃO veio deste pacote: deixei como está.\n"
-                  "         Pra trocar pela do pacote: rode de novo com --trocar-skill (a antiga vai pra kakashi.antiga-<data>).")
+                  "         Pra trocar pela do pacote: rode de novo com --trocar-skill (a antiga vai pra ~/.claude/skills-guardadas).")
             return False
-        shutil.move(alvo, alvo + ".antiga-" + datetime.datetime.now().strftime("%Y%m%d-%H%M"))
-    os.makedirs(alvo, exist_ok=True)
-    txt = open(os.path.join(dest, "skill", "SKILL.md"), encoding="utf-8").read()
-    txt = (txt.replace("`%LOCALAPPDATA%\\Programs\\Kakashi-Fly\\`", "`%s/`" % dest)
-              .replace("%LOCALAPPDATA%\\Programs\\Kakashi-Fly", dest)
-              .replace(".venv\\Scripts\\python.exe", ".venv/bin/python"))
-    aviso = ("> **No Mac** (instalado pelo instalar.py em %s): a pasta do Kakashi é `%s/` e o Python é `.venv/bin/python`. Os caminhos\n"
-             "> abaixo vieram do Windows: troque `\\` por `/`. As leis da leitura são as mesmas.\n\n" % (
-                 datetime.date.today().strftime("%d/%m/%Y"), dest))
-    if txt.startswith("---"):
-        fim = txt.find("\n---", 3)
-        txt = txt[:fim + 4] + "\n\n" + aviso + txt[fim + 4:].lstrip("\n") if fim > 0 else aviso + txt
-    else:
-        txt = aviso + txt
-    open(os.path.join(alvo, "SKILL.md"), "w", encoding="utf-8").write(txt)
-    open(os.path.join(alvo, marca), "w", encoding="utf-8").write(dest + "\n")
-    print("  skill /kakashi instalada no Claude Code (caminhos do Mac)")
+    origem = os.path.join(dest, "skill")
+    novos = {}
+    for raiz, _, arqs in os.walk(origem):
+        for n in arqs:
+            if n.endswith((".pyc",)) or "__pycache__" in raiz:
+                continue
+            rel = os.path.relpath(os.path.join(raiz, n), origem)
+            b = open(os.path.join(raiz, n), "rb").read()
+            if n.endswith(".md"):
+                b = texto_mac(b.decode("utf-8"), dest, nome_at).encode("utf-8")
+            novos[rel] = b
+    novos[marca] = (dest + "\n").encode("utf-8")
+    if os.path.isdir(alvo):
+        atuais = {}
+        for raiz, _, arqs in os.walk(alvo):
+            for n in arqs:
+                atuais[os.path.relpath(os.path.join(raiz, n), alvo)] = open(os.path.join(raiz, n), "rb").read()
+        if atuais == novos:
+            print("  skill /kakashi já estava igual (caminhos do Mac)")
+            return True
+        print("  skill /kakashi anterior guardada em %s" % _guardar(alvo))
+    for rel, b in novos.items():
+        os.makedirs(os.path.dirname(os.path.join(alvo, rel)), exist_ok=True)
+        open(os.path.join(alvo, rel), "wb").write(b)
+    sobra = [rel for rel, b in novos.items() if rel.endswith(".md") and (b"%LOCALAPPDATA%" in b or b"Scripts\\python.exe" in b)]
+    if sobra:
+        print("  AVISO: ainda tem caminho do Windows em %s" % ", ".join(sobra))
+    print("  skill /kakashi instalada no Claude Code: a pasta inteira (%d arquivos), caminhos do Mac" % (len(novos) - 1))
     return True
 
 
@@ -319,7 +388,7 @@ def main(a, marca, dest):
     com_premiere = not (a.sem_premiere or c.get("premiere") is False)
     tem_painel = instalar_painel(dest) if com_premiere else False
     criar_app(dest, py)
-    skill_ok = False if a.sem_skill else instalar_skill(dest, a.trocar_skill, marca)
+    skill_ok = False if a.sem_skill else instalar_skill(dest, a.trocar_skill, marca, nome_at)
     if a.so_atualizar:
         reiniciar(com_premiere)
         print("Atualizado e reiniciado.")

@@ -876,6 +876,16 @@ class GravacaoPC:
                     corte = int(p["dur"] * tx) * can * lg
                     if len(d) > corte:
                         os.replace(fw, fw + ".inteiro.wav"); olho.gravar_wav(fw, d[:corte], tx, can, lg)
+                    elif corte - len(d) > int(0.15 * tx) * can * lg:
+                        # 14/11: mais curto que o pedaço = o microfone demorou a abrir (PC carregado). Igual ao painel do Premiere:
+                        # o que falta vai pro COMEÇO (antes encostava e a voz dos pedaços seguintes adiantava em relação à tela).
+                        # Microfone reaberto no meio (_montar_fala) já está no relógio: aí o que falta vai pro FIM.
+                        falta = b"\0" * (corte - len(d))
+                        reaberto = any(x.get("pedaco") == p["n"] for x in self.meta.get("mic_reaberto") or [])
+                        os.replace(fw, fw + ".inteiro.wav")
+                        olho.gravar_wav(fw, d + falta if reaberto else falta + d, tx, can, lg)
+                        self.meta.setdefault("mic_atraso", []).append({"pedaco": p["n"], "s": round(len(falta) / float(tx * can * lg), 2),
+                                                                       "onde": "fim" if reaberto else "comeco"})
                 except Exception as e:
                     self.meta["erros"].append("pedaços: cortar a fala %d: %s" % (p["n"], e))
             tv = P("tela_p%02d.mp4" % p["n"])
@@ -3181,6 +3191,25 @@ class Painel:
         self.montar_lista(forcar=True)
         self.tique()
 
+    def _ajustar_janela(self, w, h):
+        """14/11: a janela do tamanho do desenho e inteira dentro da tela. No Mac, janela travada (resizable False) não cresce
+        sozinha quando o canvas cresce: nascia com os 420 px do canvas e o desenho 8 bits tem 640 → «KAKAS», pé cortado."""
+        try:
+            sw, sh = self.win.winfo_screenwidth(), self.win.winfo_screenheight()
+            if self.win.winfo_ismapped():
+                x, y = self.win.winfo_x(), self.win.winfo_y()
+            else:
+                x, y = sw // 2 - w // 2, sh // 2 - h // 2 - 40
+            x = max(0, min(x, sw - w))
+            y = max(40 if MAC else 0, min(y, sh - h - 70))
+            if MAC:
+                self.win.resizable(True, True)
+            self.win.geometry("%dx%d+%d+%d" % (w, h, x, y))
+            if MAC:
+                self.win.update_idletasks(); self.win.resizable(False, False)
+        except Exception as ex:
+            log("janelinha: ajustar o tamanho: %r" % ex)
+
     # ---- o que pode mudar no pacote do time (atalho.py e atualizar.py entram aqui)
     def legenda(self):
         return atalho.legenda(cfg()).replace(" GRAVA", " grava").replace(" CANCELA", " cancela").replace(" CAPTURA", " captura")   # pacote da Fly
@@ -3288,10 +3317,16 @@ class Painel:
         if ass != self.ass:
             self.ass = ass
             im, zonas, extra = visual.painel(e)
+            # 14/11 (Mac do Gu, janelinha cortada): a lista de gravadas não pode empurrar o pé pra fora da tela (MacBook = 982 pt)
+            caber = self.win.winfo_screenheight() - 110
+            while im.height > caber and len(e["gravacoes"]) > 1:
+                e["gravacoes"] = e["gravacoes"][:-1]
+                im, zonas, extra = visual.painel(e)
             self._img = self.ImageTk.PhotoImage(im.convert("RGB"), master=self.win)
             if self.tamanho != im.size:
                 self.tamanho = im.size
                 self.cv.configure(width=im.width, height=im.height)
+                self._ajustar_janela(im.width, im.height)
             self.cv.delete("all"); self.cv.create_image(0, 0, image=self._img, anchor="nw")
             self.zonas = zonas
             ox, oy, self.opx = extra["olho"]

@@ -406,7 +406,17 @@ def painel(e, F=1.0):
     else:
         t.texto(xt, y + 6 * F + 12 * F, "KAKASHI", "vermelho", E * 2)
     t.ico("teclado", xt + 6 * E, y + 52 * F, "#8E8E96", E)
-    t.texto(xt + 14 * E, y + 52 * F, (e.get("legenda") or "CTRL+PGDN GRAVA · +SHIFT CANCELA").upper(), "vermelho", E)
+    # 14/11 (print do Gu no Mac e o do pacote aqui: «...CTRL+ALT+PAGE» saía da janela): o que não cabe sai do FIM, por pedaço
+    # (o «grava» e o «cancela» vêm primeiro e ficam); se nem o 1º couber, corta letra
+    leg = (e.get("legenda") or "CTRL+PGDN GRAVA · +SHIFT CANCELA").upper()
+    cabe = W - m - (xt + 14 * E)
+    partes = leg.split(" · ")
+    while len(partes) > 1 and largura_texto(" · ".join(partes), E) > cabe:
+        partes.pop()
+    leg = " · ".join(partes)
+    while len(leg) > 4 and largura_texto(leg, E) > cabe:
+        leg = leg[:-1]
+    t.texto(xt + 14 * E, y + 52 * F, leg, "vermelho", E)
     # o microfone e o nível da voz, à direita do topo
     mic = (e.get("mic") or "SEM MICROFONE").upper()
     xm = W - m - 4 * F
