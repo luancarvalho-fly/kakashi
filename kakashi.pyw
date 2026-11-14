@@ -328,6 +328,10 @@ def tocar_alerta():
     threading.Thread(target=_toca, daemon=True).start()
 
 
+def _hora(epoch):
+    return datetime.datetime.fromtimestamp(epoch).isoformat(timespec="milliseconds")
+
+
 def _mmss(s):
     s = max(0, int(s))
     return "%d:%02d" % (s // 60, s % 60)
@@ -532,7 +536,9 @@ class GravacaoPC:
                     motivo = "o ffmpeg do microfone fechou" if morto else "o arquivo da voz parou de crescer há %.0f s" % parado
                     self.meta["erros"].append("microfone parou aos %s (%s, pedaço %d): reaberto" % (_mmss(t_sessao), motivo, m["n"]))
                     self.meta.setdefault("mic_reaberto", []).append({"t": t_sessao, "pedaco": m["n"], "motivo": motivo,
-                                                                     "parado_s": round(parado, 1)})
+                                                                     "parado_s": round(parado, 1),
+                                                                     # hora do relógio do PC (cruzar com o log do coreaudio do Mac)
+                                                                     "parou_em": _hora(a["cresceu"]), "reabriu_em": _hora(agora)})
                     self._evento({"tipo": "mic_reaberto", "pedaco": m["n"], "motivo": motivo}, agora)
                     log("microfone parado em %s aos %s (%s): reabrindo" % (os.path.basename(self.pasta), _mmss(t_sessao), motivo))
                     if p is not None:

@@ -731,7 +731,10 @@ def reabrir_mic_parado(chave, cresceu, parado):
         p["mic_ok"] = False
         p["erro_mic"] = ("o microfone parou de mandar som aos %.1f s da parte (o ffmpeg seguia aberto, %.0f s sem crescer): "
                          "o Kakashi abriu outra parte sozinho" % (cresceu - p["inicio"], parado))
-        a.meta.setdefault("mic_reaberto", []).append({"t_gravacao": t, "parte": n, "parado_s": round(parado, 1)})
+        a.meta.setdefault("mic_reaberto", []).append({"t_gravacao": t, "parte": n, "parado_s": round(parado, 1),
+                                                      # hora do relógio do PC (cruzar com o log do coreaudio do Mac)
+                                                      "parou_em": datetime.fromtimestamp(cresceu).isoformat(timespec="milliseconds"),
+                                                      "reabriu_em": datetime.now().isoformat(timespec="milliseconds")})
         try:
             a.gravar_eventos([{"tipo": "painel", "msg": "MICROFONE PAROU: %.0f s sem chegar som do microfone — o Kakashi reabriu "
                                                         "sozinho (parte nova)" % parado}])
