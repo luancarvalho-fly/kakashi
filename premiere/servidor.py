@@ -695,11 +695,60 @@ def disparar_alerta_mic(mudo):
     tocar_alerta()
 
 
+MIC_PARADO_S = 3.0   # 14/11: o parteNN.wav cresce ~96 KB/s ate no silencio; 3 s sem crescer = o ffmpeg nao recebe mais som
+
+
+def reabrir_mic_parado(chave, cresceu, parado):
+    """14/11 (Mac do Gu: o ffmpeg do microfone seguiu vivo mas parou de mandar som aos 71 s de 4:21, sem erro nenhum; aqui no painel
+    o buraco ia pro COMECO da parte na junção e a voz ficava atrasada). O arquivo da voz parou de crescer: fecha a parte com o mic
+    marcado como caído na hora em que o arquivo parou (o resto vira silencio no FIM, alinhado) e abre outra parte na hora (Retomar
+    sozinho). O relógio da gravação não perde nada: pausa de ~1 s fica fora, como toda pausa."""
+    with TRAVA:
+        a = ATUAL
+        if a is None or a.meta["estado"] != "gravando" or (str(a.pasta), len(a.meta["partes"])) != chave or a.audio is None:
+            return
+        velho = a.audio
+    try:                               # fora da trava: um ffmpeg travado nao responde ao 'q' (o parar esperaria 10 s)
+        velho.proc.terminate(); velho.proc.wait(timeout=3)
+    except Exception:
+        try:
+            velho.proc.kill()
+        except Exception:
+            pass
+    with TRAVA:
+        a = ATUAL
+        if a is None or a.meta["estado"] != "gravando" or (str(a.pasta), len(a.meta["partes"])) != chave:
+            return
+        t = round(a.total_gravado(), 2)
+        n = len(a.meta["partes"])
+    pausar()
+    with TRAVA:
+        a = ATUAL
+        if a is None or len(a.meta["partes"]) != n:
+            return
+        p = a.meta["partes"][-1]
+        p["mic_caiu_em"] = round(min(cresceu, p["fim"]), 3)
+        p["mic_ok"] = False
+        p["erro_mic"] = ("o microfone parou de mandar som aos %.1f s da parte (o ffmpeg seguia aberto, %.0f s sem crescer): "
+                         "o Kakashi abriu outra parte sozinho" % (cresceu - p["inicio"], parado))
+        a.meta.setdefault("mic_reaberto", []).append({"t_gravacao": t, "parte": n, "parado_s": round(parado, 1)})
+        try:
+            a.gravar_eventos([{"tipo": "painel", "msg": "MICROFONE PAROU: %.0f s sem chegar som do microfone — o Kakashi reabriu "
+                                                        "sozinho (parte nova)" % parado}])
+        except Exception:
+            pass
+        a.salvar()
+    retomar()
+    log_geral("MICROFONE PARADO (%.0f s sem o arquivo crescer) aos %.1f s gravados: reabri numa parte nova" % (parado, t))
+
+
 def vigiar_mic():
     """Fio de fundo: a cada 0,5 s olha o fim do parteNN.wav que esta sendo gravado. Zero digital por mic_morto_s seguidos =
-    disparar_alerta_mic. Cada parte nova (Iniciar/Retomar) comeca com o relogio zerado — se o mic continuar morto, dispara de novo."""
+    disparar_alerta_mic. Cada parte nova (Iniciar/Retomar) comeca com o relogio zerado — se o mic continuar morto, dispara de novo.
+    14/11: e o arquivo tem que CRESCER — parado MIC_PARADO_S = reabrir_mic_parado (o fim congelado nao e voz)."""
     ult_som = None
     chave = None
+    tam = cresceu = None
     while True:
         time.sleep(0.5)
         try:
@@ -715,6 +764,17 @@ def vigiar_mic():
                 continue
             if nova != chave:
                 chave, ult_som = nova, agora()
+                tam, cresceu = -1, agora()
+            try:
+                t_agora = os.path.getsize(arq)
+            except OSError:
+                t_agora = 0
+            if t_agora != tam:
+                tam, cresceu = t_agora, agora()
+            elif tam > 1000 and agora() - cresceu >= MIC_PARADO_S:
+                reabrir_mic_parado(chave, cresceu, agora() - cresceu)
+                ult_som = chave = None
+                continue
             p = pico_fim(arq, 1.5)
             if p is None or p > MUDO:
                 ult_som = agora()

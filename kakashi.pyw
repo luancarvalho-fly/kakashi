@@ -33,6 +33,11 @@ Pedido dele: "um atalho pra eu poder começar a gravar, sem ter que clicar em na
     grava nada. No fim liga fala.wav/tela.mp4/pc.wav do painel (hardlink) e escreve sessao.json (tipo pc, olho_premiere) → o
     resumo_pc.py lê a _olho como uma sessão PC. Abre/fecha o arquivo a cada evento: o painel pode mover a pasta (descartada).
     Gravação PC ativa tem prioridade (alvo = PC). Config "olho_premiere": false desliga.
+- MICROFONE PARADO (14/11; Mac do Gu: o ffmpeg do microfone seguiu aberto mas parou de receber som aos 71 s de 4:21, sem erro, e o
+    medidor ficou verde porque lia o fim congelado do arquivo): GravacaoPC._vigiar_mic confere 2x/s se o fala.wav CRESCE; parado
+    MIC_PARADO_S (3 s) → fecha só o microfone e abre outro num arquivo novo (fala_mNN_KK.wav), anota em erros/mic_reaberto; no fim
+    do pedaço _montar_fala junta tudo no fala.wav pelo relógio (o buraco vira silêncio; os originais vão pra _mic, nunca apaga).
+    Arquivo parado também conta como SEM SOM no medidor e não dispara print de «fala».
 - MICROFONE MORTO NO FONE (P40, 30/10; ele: "se não tiver nenhum ruidinho, bota o barulho do Sharingan no meu ouvido"):
     gravando PC ou AppPessoal, quando o "SEM SOM" acende (20 s em silêncio digital) → sons\\sharingan.wav 2x na saída padrão.
     Uma vez por queda (de novo só se a voz voltar e morrer de novo). No Premiere quem toca é o CORRETOR. Config "alerta_som": false desliga.
@@ -323,6 +328,24 @@ def tocar_alerta():
     threading.Thread(target=_toca, daemon=True).start()
 
 
+def _mmss(s):
+    s = max(0, int(s))
+    return "%d:%02d" % (s // 60, s % 60)
+
+
+def olho_cabecalho_wav(arq):
+    """(onde começam os dados, taxa, canais) de um wav PCM 16 bits; (0, 0, 0) = ainda sem cabeçalho"""
+    try:
+        with open(arq, "rb") as f:
+            cab = f.read(4096)
+        i = cab.find(b"fmt "); j = cab.find(b"data", i)
+        if i < 0 or j < 0:
+            return 0, 0, 0
+        return j + 8, int.from_bytes(cab[i + 12:i + 16], "little"), int.from_bytes(cab[i + 10:i + 12], "little")
+    except OSError:
+        return 0, 0, 0
+
+
 class VozViva:
     """P20: há quanto tempo o wav da gravação está em SILÊNCIO DIGITAL (< -85 dB). O microfone sem fio dele corta pra zero
     nas pausas (até 17,5 s em 29/10), por isso o aviso só vem depois de mudo_aviso_s() (20 s).
@@ -333,12 +356,23 @@ class VozViva:
     def __init__(self, arq, ini, faltando_e_mudo=True, quem=None):
         self.arq, self.ini, self.faltando_e_mudo, self.quem = arq, ini, faltando_e_mudo, quem
         self.ult_som = ini; self.avisou = False; self.trechos = []
+        self.tam, self.cresceu = -1, ini
+
+    def parado(self, agora):
+        """14/11: o arquivo existe mas não cresce há 2,5 s = o microfone parou (o fim congelado não é voz)"""
+        try:
+            tam = os.path.getsize(self.arq)
+        except OSError:
+            return False
+        if tam != self.tam:
+            self.tam, self.cresceu = tam, agora
+        return tam > 1000 and agora - self.cresceu > 2.5
 
     def medir(self, agora):
         if not os.path.isfile(self.arq) and not self.faltando_e_mudo:
             self.ult_som = agora
         else:
-            p = olho.pico_fim([self.arq], 1.5)
+            p = None if self.parado(agora) else olho.pico_fim([self.arq], 1.5)
             if p is not None and p >= olho.MUDO:
                 if self.avisou:
                     log("a voz voltou na gravação (%.0f s em silêncio digital)" % (agora - self.ult_som))
@@ -394,7 +428,9 @@ class GravacaoPC:
         self.pedacos = [{"n": 1, "ini": round(self.t_grav - self.t0, 2), "epoch": self.t_grav, "dur": None, "apagado": False}]
         self.pausado, self.pausa_epoch, self.pausado_s = False, None, 0.0
         self.p_trava = threading.Lock()
+        self.mic = None                                 # 14/11: o microfone do pedaço atual (arquivos, crescimento, reaberturas)
         self._abrir_pedaco(1, self.t_grav)
+        threading.Thread(target=self._vigiar_mic, daemon=True).start()
         if k is not None and self.replay_s:            # mouse/janela/cliques dos 2 min do replay (só estavam na memória)
             for quando, e in k.vigia.desde(self.t0):
                 self._evento(e, quando)
@@ -412,8 +448,8 @@ class GravacaoPC:
         if n == 1:
             self.meta["microfone"] = dev
         if dev:
-            self._abrir("fala", [FFMPEG, "-hide_banner", "-nostats", "-loglevel", "warning"] + entrada_mic(dev) + ["-ac", "1", "-ar", "48000",
-                                 "-c:a", "pcm_s16le", "-flush_packets", "1", "-y", self._arq("fala", ".wav", n)])
+            self.mic = {"n": n, "epoch": epoch, "dev": dev, "arqs": [], "reaberturas": 0, "seguidas": 0}
+            self._abrir_mic(self._arq("fala", ".wav", n), epoch)
         else:
             self.meta["erros"].append("nenhum microfone encontrado" + ("" if n == 1 else " (pedaço %d)" % n))
         self._abrir("tela", [FFMPEG, "-hide_banner", "-nostats", "-loglevel", "warning"] + ENTRADA_TELA +
@@ -438,6 +474,139 @@ class GravacaoPC:
             except subprocess.TimeoutExpired:
                 p.kill(); self.meta["erros"].append(nome + ": não fechou em 15 s, foi encerrado")
 
+    # ---------- 14/11: microfone que PARA de mandar som (Mac do Gu, voz cortada aos 71 s de 4:21, sem erro nenhum) ----------
+    MIC_PARADO_S = 3.0      # o fala.wav cresce ~96 KB/s; 3 s parado = o ffmpeg não está recebendo som (silêncio também cresce)
+    MIC_ABRIR_S = 8.0       # o ffmpeg acabou de abrir e o arquivo nem começou: espera mais (o avfoundation demora a abrir)
+
+    def _abrir_mic(self, arq, abriu):
+        m = self.mic
+        self._abrir("fala", [FFMPEG, "-hide_banner", "-nostats", "-loglevel", "warning"] + entrada_mic(m["dev"]) +
+                    ["-ac", "1", "-ar", "48000", "-c:a", "pcm_s16le", "-flush_packets", "1", "-y", arq])
+        # o 1º arquivo do pedaço começa no 0:00 do pedaço (igual sempre foi); os reabertos, quando o som chegar (_vigiar_mic)
+        m["arqs"].append({"arq": arq, "abriu": abriu, "ini": abriu if not m["arqs"] else None, "tam": 0, "cresceu": abriu})
+
+    def _proc_mic(self):
+        for nome, p in self.procs:
+            if nome == "fala":
+                return p
+        return None
+
+    def mic_parado_s(self):
+        """há quantos segundos o arquivo da voz não cresce (0 = crescendo, pausado ou ainda abrindo)"""
+        m = self.mic
+        if m is None or self.pausado or not m["arqs"] or m.get("montado"):
+            return 0.0
+        a = m["arqs"][-1]
+        return max(0.0, time.time() - a["cresceu"]) if a["tam"] > 1000 else 0.0
+
+    def _vigiar_mic(self):
+        """2x/s: o arquivo da voz tem que CRESCER (o ffmpeg grava até o silêncio). Parado MIC_PARADO_S (ou o ffmpeg morreu) →
+        fecha só o microfone e abre outro num arquivo novo. Reabriu e não voltou → espera o dobro a cada vez (até 30 s)."""
+        while not self.parar_ev.wait(0.5):
+            velho = None
+            try:
+                with self.p_trava:
+                    m = self.mic
+                    if self.pausado or m is None or not m["arqs"] or m.get("montado"):
+                        continue
+                    a, agora = m["arqs"][-1], time.time()
+                    tam = os.path.getsize(a["arq"]) if os.path.isfile(a["arq"]) else 0
+                    if tam > a["tam"]:
+                        if a["ini"] is None:
+                            ini_dados, taxa, can = olho_cabecalho_wav(a["arq"])
+                            if ini_dados and tam > ini_dados:
+                                a["ini"] = agora - (tam - ini_dados) / float(taxa * can * 2)
+                        if a["tam"] == 0 and m["seguidas"]:
+                            log("microfone voltou (%s, arquivo %s)" % (os.path.basename(self.pasta), os.path.basename(a["arq"])))
+                        a["tam"], a["cresceu"] = tam, agora
+                        m["seguidas"] = 0
+                        continue
+                    p = self._proc_mic()
+                    morto = p is None or p.poll() is not None
+                    limite = self.MIC_PARADO_S if a["tam"] > 1000 else self.MIC_ABRIR_S
+                    limite = min(limite * (2 ** m["seguidas"]), 30.0)
+                    parado = agora - a["cresceu"]
+                    if parado < limite and not (morto and parado >= 1.0):
+                        continue
+                    t_sessao = round(agora - self.t0 - self.pausado_s, 1)
+                    motivo = "o ffmpeg do microfone fechou" if morto else "o arquivo da voz parou de crescer há %.0f s" % parado
+                    self.meta["erros"].append("microfone parou aos %s (%s, pedaço %d): reaberto" % (_mmss(t_sessao), motivo, m["n"]))
+                    self.meta.setdefault("mic_reaberto", []).append({"t": t_sessao, "pedaco": m["n"], "motivo": motivo,
+                                                                     "parado_s": round(parado, 1)})
+                    self._evento({"tipo": "mic_reaberto", "pedaco": m["n"], "motivo": motivo}, agora)
+                    log("microfone parado em %s aos %s (%s): reabrindo" % (os.path.basename(self.pasta), _mmss(t_sessao), motivo))
+                    if p is not None:
+                        self.procs = [x for x in self.procs if x[1] is not p]
+                    velho = p
+                    m["reaberturas"] += 1; m["seguidas"] += 1
+                    m["trocando"] = True
+                self._salvar_meta()
+                if velho is not None:            # fora da trava: fechar um ffmpeg travado pode levar uns segundos
+                    try:
+                        velho.terminate(); velho.wait(timeout=3)
+                    except Exception:
+                        try:
+                            velho.kill()
+                        except Exception:
+                            pass
+                with self.p_trava:               # o Windows (dshow) não abre o mesmo microfone duas vezes: abre só depois de fechar
+                    m["trocando"] = False
+                    if self.pausado or self.parar_ev.is_set() or self.mic is not m:
+                        continue
+                    m["dev"] = microfone() or m["dev"]
+                    self._abrir_mic(os.path.join(self.pasta, "fala_m%02d_%02d.wav" % (m["n"], len(m["arqs"]) + 1)), time.time())
+            except Exception as e:
+                log("vigia do microfone: %r" % e)
+
+    def _montar_fala(self, n):
+        """o microfone do pedaço n foi reaberto: os arquivos viram UM (o nome de sempre), cada um no seu lugar do relógio do
+        pedaço; o buraco vira silêncio. Os originais vão pra _mic (nunca apaga)."""
+        m = self.mic
+        if m is None or m["n"] != n or m.get("montado") or len(m["arqs"]) < 2:
+            return
+        m["montado"] = True
+        dst = self._arq("fala", ".wav", n)
+        guarda = os.path.join(self.pasta, "_mic"); os.makedirs(guarda, exist_ok=True)
+        try:
+            partes, formato = [], None
+            for i, a in enumerate(m["arqs"]):
+                if not os.path.isfile(a["arq"]):
+                    continue
+                novo = os.path.join(guarda, "fala_m%02d_%02d.wav" % (n, i + 1))
+                shutil.move(a["arq"], novo)
+                ini_dados, taxa, can = olho_cabecalho_wav(novo)
+                if not ini_dados:
+                    continue
+                with open(novo, "rb") as f:          # o cru, até o fim do arquivo (ffmpeg fechado à força não acerta o tamanho)
+                    f.seek(ini_dados); d = f.read()
+                d = d[: len(d) // (2 * can) * (2 * can)]
+                if not d:
+                    continue
+                formato = formato or (taxa, can)
+                if (taxa, can) != formato:
+                    self.meta["erros"].append("microfone: %s em formato diferente, ficou de fora" % os.path.basename(novo)); continue
+                ini = a["ini"] if a["ini"] is not None else a["abriu"]
+                partes.append((max(0.0, ini - m["epoch"]), d, os.path.basename(novo)))
+            if not partes:
+                return
+            taxa, can = formato; quadro = 2 * can
+            out = bytearray()
+            for ini_s, d, _ in partes:
+                pos = int(round(ini_s * taxa)) * quadro
+                if len(out) < pos:
+                    out.extend(b"\0" * (pos - len(out)))
+                else:
+                    del out[pos:]                # sobrepôs (relógio aproximado): o arquivo novo vale
+                out.extend(d)
+            olho.gravar_wav(dst, bytes(out), taxa, can, 2)
+            self.meta.setdefault("mic_partes", []).extend(
+                {"pedaco": n, "arquivo": "_mic/" + nome, "ini_s": round(ini_s, 2), "dur_s": round(len(d) / float(taxa * quadro), 1)}
+                for ini_s, d, nome in partes)
+            log("microfone: %d arquivos juntados em %s" % (len(partes), os.path.basename(dst)))
+        except Exception as e:
+            self.meta["erros"].append("microfone: juntar os arquivos do pedaço %d: %s" % (n, e))
+            log("microfone: juntar: %r" % e)
+
     def valendo(self):
         """o tempo que VALE (sem as pausas e sem os pedaços apagados) — o relógio da janelinha e do olho, igual ao painel"""
         t = self.pedacos[0]["ini"]                  # o replay (0 desde 02/11)
@@ -457,6 +626,7 @@ class GravacaoPC:
             p = self.pedacos[-1]; p["dur"] = round(agora - p["epoch"], 2)
             procs, self.procs = self.procs, []
         self._fechar(procs)
+        self._montar_fala(p["n"])
         log("pausou %s (pedaço %d, %.1f s)" % (os.path.basename(self.pasta), p["n"], p["dur"]))
         self.meta["pedacos"] = self.pedacos; self._salvar_meta()
         return True
@@ -608,7 +778,11 @@ class GravacaoPC:
                     log("capturas: %r" % e)
 
     def fala_wav(self):
-        return self._arq("fala", ".wav", self.pedacos[-1]["n"])
+        """o arquivo da voz que está sendo gravado agora (14/11: depois de reabrir o microfone, é o arquivo novo)"""
+        n, m = self.pedacos[-1]["n"], self.mic
+        if m is not None and m["n"] == n and m["arqs"] and not m.get("montado"):
+            return m["arqs"][-1]["arq"]
+        return self._arq("fala", ".wav", n)
 
     def _salvar_meta(self):
         with open(os.path.join(self.pasta, "sessao.json"), "w", encoding="utf-8") as f:
@@ -627,6 +801,7 @@ class GravacaoPC:
             if not self.pausado:
                 p = self.pedacos[-1]; p["dur"] = round(time.time() - p["epoch"], 2)
         self._fechar(procs)
+        self._montar_fala(self.pedacos[-1]["n"])
         try:
             with self.ev_trava:
                 self.ev.close()
@@ -1066,7 +1241,7 @@ class Vigia:
                     print_janela = None; self.pedir("print", "pagina", pos, agora)
                 if g is not None and agora - t_voz >= 0.5:          # falando = o "aqui" pode vir a qualquer hora
                     t_voz = agora
-                    if olho.nivel_voz(g.fala_wav()) > 400:
+                    if g.mic_parado_s() < 1.5 and olho.nivel_voz(g.fala_wav()) > 400:     # 14/11: fim congelado não é fala
                         self.pedir("print", "fala", pos, agora)
             except Exception as e:
                 log("vigia: %r" % e)
@@ -1849,6 +2024,8 @@ class Kakashi:
         if self.voz_viva is None or self.voz_viva.arq != arq:
             self.voz_viva = VozViva(arq, ini, faltando_e_mudo=pc, quem=quem)
         self.mudo = self.voz_viva.medir(time.time())
+        if g and g.mic_parado_s() > 2.5:            # 14/11: microfone parado não é «voz recente» (era o medidor verde falso)
+            return False, self.mudo
         return self.voz_recente(arq), self.mudo
 
     def voz_recente(self, arq):
