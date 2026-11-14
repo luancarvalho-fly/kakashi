@@ -15,7 +15,8 @@ Este é o **KAKASHI** da Fly (o gravador de correção do Luan Carvalho). Quem t
 - **Nunca toque som** no PC da pessoa pra testar; nunca abra gravação de outra pessoa.
 - Deu erro na instalação: mostre a mensagem inteira e o que você acha que é; não saia apagando pasta. O Kakashi instala em
   `%LOCALAPPDATA%\Programs\Kakashi-Fly` e as gravações ficam em `sessoes\` (nunca apague essa pasta).
-- **Mac**: o `instalar.py` é do Windows; no Mac siga o `MAC.md` (instalação à mão, passo a passo; o código do Mac já está aqui).
+- **Mac** (14/11/2026): o mesmo `instalar.py` instala no Mac, na própria pasta do clone — painel do Premiere, app KAKASHI em
+  ~/Applications, ligar com o Mac e a skill. Antes, os programas do Homebrew e as permissões: siga o `MAC.md`.
 
 ## Como este repositório é mantido
 O código é o mesmo que o Luan usa todo dia, com os caminhos do PC dele trocados. Cada versão nova é publicada aqui como uma etiqueta

@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""KAKASHI da Fly (Windows) — instala pra ESTE usuário, sem administrador. Rodar de novo = atualiza (gravações, config e atalho ficam).
+"""KAKASHI da Fly (Windows; no Mac chama o instalar_mac.py) — instala pra ESTE usuário, sem administrador. Rodar de novo = atualiza (gravações, config e atalho ficam).
 
   py -3 instalar.py                          → instala com o atalho padrão (Ctrl+Page Down) ou o que já estava no config.json
   py -3 instalar.py --atalho "ctrl+alt+k"    → instala com o atalho que a pessoa escolheu (o atalho.py confere se vale e se está livre)
@@ -216,10 +216,15 @@ def main():
     ap.add_argument("--sem-ligar", action="store_true"); ap.add_argument("--sem-skill", action="store_true")
     ap.add_argument("--sem-premiere", action="store_true"); ap.add_argument("--trocar-skill", action="store_true")
     ap.add_argument("--desinstalar", action="store_true")
+    ap.add_argument("--so-atualizar", action="store_true", help="Mac: depois de um git pull (o atualizar.py chama)")
     a = ap.parse_args()
     dest = os.path.abspath(a.destino)
+    if sys.platform == "darwin":      # 14/11/2026: o Mac instala na própria pasta do clone (instalar_mac.py)
+        sys.path.insert(0, AQUI)
+        import instalar_mac
+        return instalar_mac.main(a, MARCA_SKILL, AQUI)
     if sys.platform != "win32":
-        sys.exit("Este instalador é do Windows. No Mac: o porte está sendo feito (00-LEIA-PRIMEIRO-CLAUDE.md do pacote pro Mac).")
+        sys.exit("Este instalador é do Windows e do Mac. No Linux, o Kakashi não roda (o Tandera sim: veja o repositório dele).")
     if sys.version_info < (3, 10):
         sys.exit("Precisa do Python 3.10 ou mais novo. Instale:  winget install Python.Python.3.12  e rode de novo.")
     if a.desinstalar:

@@ -61,7 +61,8 @@ sys.path.insert(0, AQUI)
 import olho  # noqa: E402
 import atalho  # noqa: E402   # pacote da Fly (27/10): o atalho que a pessoa escolher
 import atualizar  # noqa: E402   # pacote da Fly (27/10): versão nova no GitHub da Fly
-import visual  # noqa: E402   # 3.0 (12/11): a barra e a janelinha lisas (PIL)
+import tema  # noqa: E402   # 14/11: qual visual (padrão 8 BITS = visual8.py; config "visual": "grafite" = visual.py)
+visual = tema.modulo()
 SESSOES = os.path.join(AQUI, "sessoes")
 PORTA = 7816
 CFG = os.path.join(AQUI, "config.json")
@@ -2049,6 +2050,7 @@ except Exception:
     ESC = 1.0
 # o olho é o do painel do Premiere: arte de 40x40 ampliada 4x nos PNGs (160) → aqui 1 bloco = 1 px (40), ou 2 px (80) no config "olho": 80
 ICONES = os.path.join(CORRETOR, "painel", "icones")
+visual.ICONES = ICONES          # 14/11: a janelinha 8 bits usa o titulo.png do painel do Premiere
 OLHO = int(cfg().get("olho", 40))
 def _tamanho_barra():
     """3.0: o tamanho da barra acompanha a tela: 1 = 1080p a 100%; a 4K dele sem zoom do Windows (2160 lógicos) = 1,5"""
@@ -2494,7 +2496,7 @@ class Tela:
         """os quadros do Sharingan (os mesmos do painel do Premiere: ligar 55 ms, giro 90 ms, desligar 45 ms), reduzidos LISOS
         (12/11: o pixel a pixel serrilhava). Cinza = gravando MUDO (P20)."""
         from PIL import ImageTk
-        px = int(24 * self.F)
+        px = int(getattr(visual, "OLHO_PX", 24) * self.F)
         nomes = {"olho": "olho.png",
                  "ligar": ["ligar_%02d.png" % i for i in range(18) if os.path.isfile(os.path.join(ICONES, "ligar_%02d.png" % i))],
                  "giro": ["giro_%02d.png" % i for i in range(12)]}
@@ -2793,7 +2795,7 @@ class Tela:
         from PIL import Image, ImageTk
         if MAC:
             return ImageTk.PhotoImage(im, master=self.root)
-        fundo = Image.new("RGBA", im.size, (0x1C, 0x1C, 0x1E, 255))
+        fundo = Image.new("RGBA", im.size, visual.rgba(visual.COR["fundo"]))
         rgb = Image.alpha_composite(fundo, im).convert("RGB")
         mascara = im.getchannel("A").point(lambda v: 255 if v >= 110 else 0)
         chave = Image.new("RGB", im.size, (1, 2, 3))
@@ -2900,6 +2902,18 @@ class Tela:
 FLAG_PAINEL = os.path.join(AQUI, "abrir_painel.flag")
 APP_PESSOAL_COR = os.path.join(AQUI, "_sem_app_pessoal")   # pacote da Fly: o AppPessoal é do Luan, aqui não existe
 PREMIERE_SES = os.path.join(AQUI, "premiere", "sessoes")   # pacote da Fly: o servidor do painel mora em premiere\
+
+
+def abrir_pasta(pasta):
+    """abre a pasta no Explorador (Windows) ou no Finder (Mac). 14/11: o os.startfile só existe no Windows — no Mac os botões
+    ABRIR e PASTA da janelinha davam erro"""
+    try:
+        if MAC:
+            subprocess.Popen(["open", pasta])
+        else:
+            os.startfile(pasta)
+    except Exception as e:
+        log("abrir pasta: %r" % e)
 
 
 def gravacoes(n=12):
@@ -3158,7 +3172,7 @@ class Painel:
         elif isinstance(z, tuple) and z[0] == "trocamodo" and z[1] < len(self.lista):
             self._trocar_modo(self.lista[z[1]], z[2])
         elif isinstance(z, tuple) and z[0] == "abrir" and z[1] < len(self.lista):
-            os.startfile(self.lista[z[1]]["pasta"])
+            abrir_pasta(self.lista[z[1]]["pasta"])
         elif isinstance(z, tuple) and z[0] == "descartar" and z[1] < len(self.lista):
             self._descartar(self.lista[z[1]])
         elif z == "canto":
@@ -3166,7 +3180,7 @@ class Painel:
         elif z in ("barra_menor", "barra_maior"):
             novo = t.mudar_escala(-0.1 if z == "barra_menor" else 0.1); self.avisar("Barra em %d%%" % int(round(novo * 100)), 2.5)
         elif z == "pasta":
-            os.startfile(SESSOES)
+            abrir_pasta(SESSOES)
         elif z == "fechar":
             t._sair()
         else:

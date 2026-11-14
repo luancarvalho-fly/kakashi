@@ -103,9 +103,18 @@ def instalar_mac():
         return 1
     r = subprocess.run(["git", "-C", AQUI, "pull", "--ff-only"], capture_output=True, text=True)
     print((r.stdout + r.stderr).strip())
-    if r.returncode == 0:
-        print("Atualizado (%s). Feche e abra o Kakashi pra valer o código novo." % versao_local())
-    return r.returncode
+    if r.returncode != 0:
+        return r.returncode
+    # 14/11/2026: depois do pull, o instalar.py do Mac refaz o que o pull não refaz sozinho (bibliotecas novas, o painel do Premiere,
+    # o app KAKASHI, a skill) e reinicia os dois LaunchAgents — o código novo vale na hora, sem fechar nada à mão
+    inst = os.path.join(AQUI, "instalar.py")
+    if os.path.isfile(inst) and os.path.isfile(os.path.join(AQUI, "instalar_mac.py")):
+        py = os.path.join(AQUI, ".venv", "bin", "python")
+        r2 = subprocess.run([py if os.path.isfile(py) else sys.executable, inst, "--so-atualizar"], cwd=AQUI)
+        print("Atualizado (%s)%s." % (versao_local(), "" if r2.returncode == 0 else " — mas o instalar.py --so-atualizar falhou (ver acima)"))
+        return r2.returncode
+    print("Atualizado (%s). Feche e abra o Kakashi pra valer o código novo." % versao_local())
+    return 0
 
 
 def instalar(teste=False):

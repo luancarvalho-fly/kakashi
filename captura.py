@@ -23,7 +23,8 @@ import ctypes, ctypes.wintypes as wt, datetime, json, os, re, threading, time
 from PIL import Image, ImageDraw, ImageGrab
 
 import olho
-import visual
+import tema
+visual = tema.modulo()     # 14/11: o mesmo visual da barra (8 bits por padrão)
 
 _u32 = ctypes.WinDLL("user32", use_last_error=True)
 _k32 = ctypes.WinDLL("kernel32", use_last_error=True)

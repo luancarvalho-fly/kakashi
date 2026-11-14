@@ -21,7 +21,7 @@ Na mão (Windows): baixe o zip (botão verde **Code → Download ZIP**), extraia
 ## O que precisa
 | | |
 |---|---|
-| **Sistema** | **Windows 10/11** (instalador automático) · **Mac** (à mão, pelo seu Claude: `MAC.md`; portado pelo Gu). |
+| **Sistema** | **Windows 10/11** e **Mac** (o mesmo `instalar.py`; no Mac, antes, os programas do Homebrew: `MAC.md`; porte do Gu). |
 | **O gravador** | leve em qualquer PC (0,1–1% do processador). |
 | **A transcrição da fala** | é a parte pesada. Dois caminhos, o instalador ajuda a escolher: **ARDI** (o conector da Fly no seu Claude; centavos por gravação; qualquer PC) · **Tandera no seu PC** (de graça; no processador: ok em PC médio/forte, lento em PC fraco). |
 | **PC forte / RunPod** | o Kakashi em si não precisa. Quem vai usar a análise completa de vídeo (o **Tandera**) precisa de placa NVIDIA; sem ela, o Tandera roda numa máquina alugada por hora no **RunPod** (passo a passo no `RUNPOD.md` do Tandera). |

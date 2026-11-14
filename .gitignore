@@ -1,0 +1,10 @@
+# o que o instalador e o Kakashi criam DENTRO da pasta do clone (Mac): fica fora do git, o git pull não esbarra
+.venv/
+__pycache__/
+*.pyc
+som_mac/som_do_mac
+*-launchd.log
+*.log
+*.trava
+abrir_painel.flag
+perfil.json
