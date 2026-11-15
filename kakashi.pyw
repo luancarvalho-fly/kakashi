@@ -1855,6 +1855,17 @@ class Kakashi:
         s = int(time.time() - r["t0"])
         return "RESUMO · TRANSCREVENDO %d:%02d" % (s // 60, s % 60)     # sem acento: a fonte 8 bits é ASCII + ·
 
+    NAVEGADORES = ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "arc.exe", "google chrome", "safari", "firefox")
+
+    @classmethod
+    def _frente_e_claude(cls, j):
+        """o app do Claude (claude.exe; no Mac «Claude») ou uma aba do claude.ai no navegador («… - Claude»). Só o nome do app, nunca
+        o título solto: o Explorer numa pasta chamada CLAUDE e o «backup-claude» do Chrome passariam (conferido nos eventos 15/11)"""
+        app, tit = (j.get("app") or "").strip().lower(), (j.get("titulo") or "")
+        if app in ("claude.exe", "claude"):
+            return True
+        return app in cls.NAVEGADORES and re.search(r"(^|\s[-–—|]\s)Claude(\s[-–—|]\s|$)", tit) is not None
+
     def _resumo(self, e):
         def pronto_em(p, t0):
             for c in (p, os.path.join(p, "_olho")):
@@ -1878,8 +1889,7 @@ class Kakashi:
             self._aplicar_modo(e, "rapido", "resumo não saiu")
             return
         texto = open(arq, encoding="utf-8").read()
-        j = janela_frente()
-        no_claude = bool(e.get("colar")) and ("claude" in (j.get("app") or "").lower() or "claude" in (j.get("titulo") or "").lower())
+        no_claude = bool(e.get("colar")) and self._frente_e_claude(janela_frente())
         colar_kakashi(no_claude, texto)
         seg = time.time() - t0
         self._res = {"t0": t0, "ate": time.time() + (5 if no_claude else 12),
