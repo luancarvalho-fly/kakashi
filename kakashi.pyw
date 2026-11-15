@@ -1832,7 +1832,59 @@ class Kakashi:
             except OSError as ex:
                 log("escolha: MODO.json em %s: %r" % (p, ex))
         log("escolha: %s → %s (%s)" % (", ".join(os.path.basename(p) for p in e["pastas"]), modo.upper(), quando_escolheu))
+        if modo == "resumo":
+            self._resumo(e)
+            return
         colar_kakashi(e["colar"], "/kakashi " + ("rápido" if modo == "rapido" else "profundo"))
+
+    # ---- 15/11 ~20h20: o MODO RESUMO (ele: «quando termina, já cola tudo pro Claude... print com links com a minha transcrição... de uma
+    # maneira inteligente... e rápida»). Quem monta é o modo_resumo.py (pythonw, sem janela): a fala no processador + o que ele copiou,
+    # desenhou, baixou e abriu, na ordem do relógio → RESUMO.md. Aqui: roda, mostra o andamento na barra e cola.
+    # Cola SÓ se a janela da frente for o Claude (o app ou o claude.ai): leva ~0,4 × a gravação e ele pode estar em outro lugar quando
+    # fica pronto — fora do Claude, só copia e a barra avisa «Ctrl+V no Claude».
+    def resumo_status(self):
+        """o texto da barra enquanto o resumo anda (e uns segundos depois de pronto); "" = nada"""
+        r = getattr(self, "_res", None)
+        if not r:
+            return ""
+        if r.get("ate") and time.time() > r["ate"]:
+            self._res = None
+            return ""
+        if r.get("fim"):
+            return r["fim"]
+        s = int(time.time() - r["t0"])
+        return "RESUMO · TRANSCREVENDO %d:%02d" % (s // 60, s % 60)     # sem acento: a fonte 8 bits é ASCII + ·
+
+    def _resumo(self, e):
+        def pronto_em(p, t0):
+            for c in (p, os.path.join(p, "_olho")):
+                a = os.path.join(c, "RESUMO.md")
+                if os.path.isfile(a) and os.path.getmtime(a) >= t0 - 1:
+                    return a
+            return None
+        t0 = time.time()
+        self._res = {"t0": t0}
+        try:
+            r = subprocess.run([sys.executable, os.path.join(AQUI, "modo_resumo.py")] + list(e["pastas"]), cwd=AQUI,
+                               creationflags=SEM_JANELA, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1800)
+            cod = r.returncode
+        except Exception as ex:
+            cod = -1; log("resumo: %r" % ex)
+        arq = next((a for a in (pronto_em(p, t0) for p in e["pastas"]) if a), None)
+        if not arq:
+            # sem gravação do PC pra resumir (ex.: a do app de cartões) ou deu erro: não deixa ele sem nada — vai o /kakashi rápido
+            log("resumo: não saiu (código %s) em %s → /kakashi rápido" % (cod, ", ".join(e["pastas"])))
+            self._res = {"t0": t0, "fim": "RESUMO NAO SAIU · FOI O /KAKASHI RAPIDO", "ate": time.time() + 8}
+            self._aplicar_modo(e, "rapido", "resumo não saiu")
+            return
+        texto = open(arq, encoding="utf-8").read()
+        j = janela_frente()
+        no_claude = bool(e.get("colar")) and ("claude" in (j.get("app") or "").lower() or "claude" in (j.get("titulo") or "").lower())
+        colar_kakashi(no_claude, texto)
+        seg = time.time() - t0
+        self._res = {"t0": t0, "ate": time.time() + (5 if no_claude else 12),
+                     "fim": "RESUMO COLADO NO CLAUDE" if no_claude else "RESUMO COPIADO · CTRL+V NO CLAUDE"}
+        log("resumo: %s em %.0f s (%s)" % ("colado" if no_claude else "copiado", seg, arq))
 
     def descartar_escolha(self):
         """o X da escolha: a correção vai pro _descartadas (nunca apaga); espera o Kakashi/painel terminar de juntar os arquivos"""
@@ -2780,7 +2832,7 @@ class Tela:
         # girando, vai ficar... o olho com sangue... aquela animaçãozinha»): gira = gravando e não pausado; pausou = a animação de
         # desligar até o olho com sangue, e volta a ligar ao continuar
         grav = bool(self.quem) and not self.pausado
-        fica = bool(self.quem) or bool(self.escolha) or self.captura is not None  # 3.0: esperando a escolha / no modo captura, fica
+        fica = bool(self.quem) or bool(self.escolha) or self.captura is not None or bool(self._resumo_txt())  # 3.0: escolha / resumo andando, fica
         n_lig = len(self.olho["ligar"])
         if self.modo == "escondido":
             if fica:
@@ -2857,7 +2909,7 @@ class Tela:
             self.captura_fim(True)
         elif zona == "sair_captura":
             self.captura_fim(False)
-        elif zona in ("rapido", "profundo"):
+        elif zona in ("rapido", "profundo", "resumo"):
             self._escolher(zona)
         elif isinstance(zona, tuple) and zona[0] == "marcar":          # 14/11: marcado durante a gravação
             self.k.marcar_modo(zona[1]); self._forcar()
@@ -3047,9 +3099,10 @@ class Tela:
         d = self.desenho
         z = self.hover
         dica = next((dc for _, _, zz, dc in self._dicas if zz == z), None) if (z is not None and self.quem) else None
-        modo = "grav" if self.quem else ("captura" if self.captura is not None else "escolha")
+        res = "" if (self.quem or self.escolha) else self._resumo_txt()      # 15/11: o RESUMO andando (a escolha vem antes)
+        modo = "grav" if self.quem else ("captura" if self.captura is not None else ("resumo" if res else "escolha"))
         e = {"modo": modo, "hover": z, "dica": dica, "desenho": d is not None, "n": self.captura.n() if self.captura is not None else 0,
-             "flash": time.time() < getattr(self, "flash_ate", 0) and int(time.time() * 4) % 2 == 0}
+             "texto": res, "flash": time.time() < getattr(self, "flash_ate", 0) and int(time.time() * 4) % 2 == 0}
         if self.quem:
             s = int(time.time() - self.desde) if self.desde else 0
             e.update(tempo="%d:%02d" % (s // 60, s % 60), quem={"pc": "PC", "app_pessoal": "AppPessoal", "premiere": "Premiere"}.get(self.quem, ""),
@@ -3070,6 +3123,11 @@ class Tela:
         mascara = im.getchannel("A").point(lambda v: 255 if v >= 110 else 0)
         chave = Image.new("RGB", im.size, (1, 2, 3))
         return ImageTk.PhotoImage(Image.composite(rgb, chave, mascara), master=self.root)
+
+    def _resumo_txt(self):
+        """15/11: o aviso do modo RESUMO (o Kakashi diz; quem não tem, ex. o Kakashi de mentira dos testes, = nada)"""
+        f = getattr(self.k, "resumo_status", None)
+        return f() if f else ""
 
     def _desenhar(self):
         e = self._estado_barra()
@@ -3095,19 +3153,20 @@ class Tela:
 
     # ---- 12/11: o MODO CAPTURA (Page Down), o lugar do Lightshot — as peças moram no captura.py
     def captura_alternar(self):
-        """Page Down: liga (abre o recorte na hora) / desliga (cola tudo)"""
+        """Page Down = o Lightshot (15/11 ~20h20, ele: «Deixa o page down do Kakashi idêntico como era o light shot. Eu tiro o print
+        ali... copio já, e acabou. Em vez de ser múltiplos»). Abre o recorte; Enter / Ctrl+C / ✓ copia a imagem e fecha. Nada de
+        juntar, nada de colar sozinho: o «juntar tudo e colar» virou o modo RESUMO da gravação (modo_resumo.py). Page Down com o
+        recorte já aberto não faz nada (às 18:20 o 2º aperto ligava e desligava no mesmo segundo). Gravando, o print copiado entra
+        na sessão sozinho (o vigia da área de transferência), e o RESUMO cola ele no fim.
+        (A coleta de 12/11 — classe Captura em captura.py — ficou no arquivo, sem uso.)"""
         if MAC:
             return
-        if self.captura is None:
-            import captura
-            self.captura = captura.Captura(os.path.join(SESSOES, "_capturas"), log)
-            self._ass = None
-            self._abrir_recorte()
-        else:
-            self.captura_fim(True)
+        if self.captura is not None:                 # sobra de um modo captura ligado antes da troca: fecha sem colar
+            self.captura_fim(False)
+        self._abrir_recorte()
 
     def _abrir_recorte(self):
-        if self.recorte is not None or self.captura is None:
+        if self.recorte is not None:
             return
         import captura
         try:
@@ -3116,9 +3175,10 @@ class Tela:
             log("captura/recorte: %r" % e); self.recorte = None
 
     def _recorte_pronto(self, im):
+        """o recorte fechou: a imagem (se teve) já está copiada; é só isso, igual o Lightshot"""
         self.recorte = None
-        if im is not None and self.captura is not None:
-            self.captura.adicionar_print(im)
+        if im is not None:
+            log("print: copiado %d × %d" % im.size)
         self._ass = None
 
     def captura_fim(self, colar=True):
@@ -3475,8 +3535,10 @@ class Painel:
             t._acao(True)
         elif isinstance(z, tuple) and z[0] == "ped":
             threading.Thread(target=lambda: (self.k.alternar_pedaco(z[1]), t._forcar()), daemon=True).start()
-        elif isinstance(z, tuple) and z[0] in ("rapido", "profundo") and z[1] < len(self.lista):
+        elif isinstance(z, tuple) and z[0] in ("rapido", "profundo", "resumo") and z[1] < len(self.lista):
             self._modo(self.lista[z[1]], z[0])
+        elif isinstance(z, tuple) and z[0] == "trocamodo" and z[2] == "resumo" and z[1] < len(self.lista):
+            self._modo(self.lista[z[1]], "resumo")          # 15/11: trocar pra RESUMO = fazer o resumo (copia; daqui não dá pra colar)
         elif isinstance(z, tuple) and z[0] == "trocamodo" and z[1] < len(self.lista):
             self._trocar_modo(self.lista[z[1]], z[2])
         elif isinstance(z, tuple) and z[0] == "abrir" and z[1] < len(self.lista):
@@ -3497,7 +3559,18 @@ class Painel:
 
     def _modo(self, g, modo):
         """a gravação ficou sem modo: grava o MODO.json e copia o /kakashi pra ele colar no Claude (daqui não dá pra colar: a frente
-        é a janelinha)"""
+        é a janelinha). 15/11: RESUMO = o Kakashi monta o resumo (a barra mostra o andamento) e copia quando fica pronto."""
+        if modo == "resumo":
+            if g["dur"] is None:
+                self.avisar("Essa ainda está gravando"); return
+            if self.k.resumo_status().startswith("RESUMO · TRANSCREVENDO"):
+                self.avisar("Já tem um resumo andando: espere ele ficar pronto"); return
+            e = {"quem": "janelinha", "pastas": [g["pasta"]], "colar": False}
+            threading.Thread(target=self.k._aplicar_modo, args=(e, "resumo", "janelinha"), daemon=True).start()
+            log("janelinha: %s → RESUMO" % os.path.basename(g["pasta"]))
+            self.avisar("Resumo: transcrevendo (~0,4 × a gravação); copio quando ficar pronto", 8)
+            self.montar_lista(forcar=True)
+            return
         d = {"modo": modo, "escolhido_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "quem": "janelinha",
              "pastas": [g["pasta"]]}
         try:
@@ -3533,7 +3606,7 @@ class Painel:
                 self.avisar("Não trocou o modo: %s" % ex); return
         log("janelinha: modo trocado %s → %s em %s" % (antes, modo, ", ".join(os.path.basename(p) for p in pastas)))
         lida = " (o Claude já leu: a leitura feita fica)" if g.get("lida") else ""
-        self.avisar("Modo trocado pra %s%s" % ("Rápido" if modo == "rapido" else "Profundo", lida))
+        self.avisar("Modo trocado pra %s%s" % ({"rapido": "Rápido", "resumo": "Resumo"}.get(modo, "Profundo"), lida))
         self.montar_lista(forcar=True)
 
     def _descartar(self, g):

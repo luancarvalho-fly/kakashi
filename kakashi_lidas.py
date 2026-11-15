@@ -9,13 +9,14 @@ _transcricao\\, ou o nome da pasta no lidas.json da skill /kakashi.
   python kakashi_lidas.py marcar <pasta> --chat <id do chat> [--nota "o que virou"]   → marca como lida (LIDA.json + lidas.json)
   python kakashi_lidas.py quem <pasta>           → quem leu essa sessão
   python kakashi_lidas.py faltando               → sessões de hoje sem a análise que o modo delas pede
-  python kakashi_lidas.py modo <pasta> rapido|profundo   → grava o MODO.json (quando ele disse o modo no chat e a barra não gravou)
+  python kakashi_lidas.py modo <pasta> rapido|profundo|resumo   → grava o MODO.json (quando ele disse o modo no chat e a barra não gravou)
 TRAVA 06/11: marcar com nota final só passa com LEITURA-CLAUDE.md + SABOTADOR.md na pasta; «--nota lendo» reserva sem exigir.
 TRAVA 11/11: gravações a partir de 11/11 19h também precisam do PROMPT.md (passo 4a: a fala reescrita como prompt antes de executar).
 KAKASHI 3.0 (12/11, ele: «você acha que vale a pena ter um sabotador?... o sabotador seria melhor só pra correção pesada mesmo» ·
 «coisa rápida, ou coisa mais profunda... eu que tenho que colocar ali»): o MODO.json que a barra grava muda o que é cobrado:
   RÁPIDO   → PROMPT.md + COBERTURA.md «RESULTADO: OK» mais nova que o PROMPT (conferir_prompt.py: nenhuma fala ficou sem dono)
   PROFUNDO → LEITURA-CLAUDE.md + PROMPT.md + SABOTADOR.md (o de sempre)
+  RESUMO   → (15/11) o RESUMO.md que o próprio Kakashi montou e colou no chat (modo_resumo.py): ele conta como lida
   sem modo → o de antes (sessões antigas)
 """
 import datetime, json, os, sys
@@ -49,6 +50,8 @@ def ja_lida(p, texto_lidas):
             return "LIDA.json: " + json.load(open(os.path.join(p, "LIDA.json"), encoding="utf-8")).get("chat", "?")
         except Exception:
             return "LIDA.json"
+    if modo(p) == "resumo" and os.path.isfile(os.path.join(p, "RESUMO.md")):
+        return "RESUMO colado no chat pelo Kakashi (RESUMO.md)"     # 15/11: o resumo já foi entregue a um chat
     for nome in ("LEITURA-CLAUDE.md", "PROMPT.md"):          # 3.0: no RÁPIDO não tem LEITURA-CLAUDE; o PROMPT.md também diz «já leu»
         for c in (os.path.join(p, nome), os.path.join(p, "_transcricao", nome)):
             if os.path.isfile(c):
@@ -86,19 +89,19 @@ def novas():
 
 
 def modo(p):
-    """3.0 (12/11): «rapido» | «profundo» | None — o MODO.json que a barra do Kakashi grava quando ele escolhe ao concluir"""
+    """3.0 (12/11): «rapido» | «profundo» | «resumo» (15/11) | None — o MODO.json que a barra do Kakashi grava quando ele escolhe ao concluir"""
     try:
         m = json.load(open(os.path.join(p, "MODO.json"), encoding="utf-8")).get("modo")
-        return m if m in ("rapido", "profundo") else None
+        return m if m in ("rapido", "profundo", "resumo") else None
     except Exception:
         return None
 
 
 def gravar_modo(p, md, motivo=None):
     """motivo = 14/11: o modo AUTOMÁTICO (sem marca na barra, o Claude decide pela gravação e diz por quê)"""
-    md = {"rápido": "rapido", "rapido": "rapido", "profundo": "profundo"}.get(md.strip().lower())
+    md = {"rápido": "rapido", "rapido": "rapido", "profundo": "profundo", "resumo": "resumo"}.get(md.strip().lower())
     if not md or not os.path.isdir(p):
-        sys.exit("uso: kakashi_lidas.py modo <pasta> rapido|profundo [--auto \"<motivo>\"]")
+        sys.exit("uso: kakashi_lidas.py modo <pasta> rapido|profundo|resumo [--auto \"<motivo>\"]")
     d = {"modo": md, "escolhido_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "quem": "chat", "pastas": [p]}
     if motivo:
         d.update(escolhido="automático", motivo=motivo)
@@ -130,6 +133,8 @@ def exigidos(p):
         return ("PROMPT.md", "COBERTURA.md")
     if md == "profundo":
         return ("LEITURA-CLAUDE.md", "PROMPT.md", "SABOTADOR.md")
+    if md == "resumo":
+        return ("RESUMO.md",)
     nome = os.path.basename(p.rstrip("\\/"))
     return ("LEITURA-CLAUDE.md", "PROMPT.md", "SABOTADOR.md") if nome[:13] >= PROMPT_DESDE else ("LEITURA-CLAUDE.md", "SABOTADOR.md")
 

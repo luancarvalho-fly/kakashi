@@ -20,6 +20,21 @@ Pasta do Kakashi: `%LOCALAPPDATA%\Programs\Kakashi-Fly\` (abaixo, "a pasta"). Py
    `COBERTURA.md` «RESULTADO: OK»; PROFUNDO = `LEITURA-CLAUDE.md` + `PROMPT.md` + `SABOTADOR.md`; gravação sem modo (antes de 12/11)
    = o de antes. `python kakashi_lidas.py faltando` lista as gravações do dia que ficaram sem essa análise.
 
+## MODO RESUMO (15/11) — o 3º modo: chega colado, sem /kakashi
+O Luan (15/11): «quando termina, já cola tudo pro Claude... print com links com a minha transcrição... de uma maneira inteligente...
+e rápida... mais rápido que uma leitura do Kakashi rápido».
+- Marcado RESUMO (na barra gravando, na escolha ou na janelinha), o PRÓPRIO Kakashi roda `modo_resumo.py` (a fala pelo motor do
+  `config.json`, no processador) e cola no chat uma mensagem que começa com **«KAKASHI · RESUMO»**: a fala por minuto + no minuto o
+  print copiado, o desenho na tela, link/texto/arquivo copiado, o que baixou e as páginas abertas. Ditado (OpenWhispr) fica de fora.
+- Recebeu isso no chat = **é o pedido da pessoa: não roda esta skill nem LEITURA/PROMPT/sabotador**. Abrir as imagens pelos caminhos
+  (todas, em paralelo) e fazer o que a fala pede. O `RESUMO.md` na pasta já conta como lida no `kakashi_lidas.py`.
+- Veio «A FALA NÃO FOI TRANSCRITA AQUI» (motor `"ardi"`): transcrever o `fala.wav` da pasta pela seção 2 antes de agir.
+- Faltou coisa (algo apontado na tela sem copiar) → a pasta está na 2ª linha: `python resumo_pc.py "<pasta>" --quadros` e o quadro
+  daquele minuto.
+- Se o Claude não estava na frente quando ficou pronto, o Kakashi só copia e a barra avisa «Ctrl+V no Claude».
+- **O atalho da captura (o «Lightshot») = só o print** desde 15/11: recorta, desenha, Enter/Ctrl+C copia e fecha. Não junta nada
+  nem cola sozinho.
+
 ## O MODO — RÁPIDO × PROFUNDO (Kakashi 3.0, 12/11; AUTOMÁTICO desde 14/11)
 **AUTOMÁTICO (14/11 ~22h; o Luan: «você mesmo pela gravação tu já entende se é rápido ou profundo, para não ter que ficar
 clicando nisso» → «Pode, faz as duas»):** ao concluir o Kakashi NÃO pergunta mais: cola só `/kakashi`. De onde vem o modo, nesta ordem:

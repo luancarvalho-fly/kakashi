@@ -299,7 +299,7 @@ def barra(e, F=1.0):
         # 14/11 (pedido do Gu): Rápido / Profundo marcado durante a gravação = no fim já cola /kakashi <modo> (clique de novo desmarca)
         mc = e.get("marcado")
         add(14 * F, lambda t, x: t.linha(x + 7 * F, H * .28, x + 7 * F, H * .72, COR["borda"], 1 * F))
-        for txt, z in (("Rápido", "rapido"), ("Profundo", "profundo")):
+        for txt, z in (("Rápido", "rapido"), ("Profundo", "profundo"), ("Resumo", "resumo")):     # 15/11: + Resumo
             wm = largura_texto(txt, "sb", 12 * F) + 22 * F
 
             def marca_fn(t, x, txt=txt, z=z, wm=wm):
@@ -307,7 +307,8 @@ def barra(e, F=1.0):
                 t.ret(x + 2 * F, H / 2 - 11 * F, x + wm - 2 * F, H / 2 + 11 * F, 11 * F,
                       fill=COR["vermelho"] if on else (COR["seg_sel"] if hov else COR["seg"]))
                 t.texto(x + wm / 2, H / 2, txt, COR["texto"], "sb", 12 * F, "mm")
-            add(wm, marca_fn, ("marcar", z), "Desmarcar" if mc == z else "No fim já cola /kakashi " + txt.lower())
+            add(wm, marca_fn, ("marcar", z), "Desmarcar" if mc == z else
+                ("No fim cola o resumo (fala + prints e links)" if z == "resumo" else "No fim já cola /kakashi " + txt.lower()))
             add(4 * F)
         add(10 * F, lambda t, x: t.linha(x + 5 * F, H * .28, x + 5 * F, H * .72, COR["borda"], 1 * F))
         wc = largura_texto("Concluir", "sb", 13 * F) + 30 * F
@@ -337,22 +338,32 @@ def barra(e, F=1.0):
                               t.texto(x + 28 * F, H / 2, "Colar tudo", COR["preto"], "sb", 13 * F)), "colar", "Colar tudo (= Page Down)")
         add(passo, lambda t, x: _botao_redondo(t, x + passo / 2, H / 2, r_bt, "x", int(14 * F), COR["texto2"], hover=hv == "sair_captura"),
             "sair_captura", "Sair sem colar")
-    else:                                  # a escolha: «Como eu leio?» · Rápido | Profundo · +N · X
+    elif e["modo"] == "resumo":            # 15/11: o RESUMO andando / pronto (só o aviso: não tem o que clicar)
+        txt = (e.get("texto") or "Resumo")
+        txt = txt[:1] + txt[1:].lower().replace("claude", "Claude").replace("ctrl+v", "Ctrl+V").replace("/kakashi", "/kakashi")
+        add(30 * F, lambda t, x: t.ico("colar", x + 15 * F, H / 2, int(17 * F), COR["amarelo"]))
+        wl = largura_texto(txt, "sb", 13 * F) + 16 * F
+        add(wl, lambda t, x: t.texto(x + 4 * F, H / 2, txt, COR["texto"], "sb", 13 * F))
+    else:                                 # a escolha: «Como eu leio?» · Rápido | Profundo · +N · X
         add(6 * F)
         wq = largura_texto("Como eu leio?", "sb", 14 * F) + 16 * F
         add(wq, lambda t, x: t.texto(x + 4 * F, H / 2, "Como eu leio?", COR["texto"], "sb", 14 * F))
-        wr, wp = largura_texto("Rápido", "sb", 13 * F) + 32 * F, largura_texto("Profundo", "sb", 13 * F) + 32 * F
+        # 15/11: + Resumo (o 3º lado)
+        opc = [(txt, largura_texto(txt, "sb", 13 * F) + 32 * F, z) for txt, z in
+               (("Rápido", "rapido"), ("Profundo", "profundo"), ("Resumo", "resumo"))]
+        wseg = sum(w for _, w, _ in opc)
 
         def seg_fn(t, x):
-            t.ret(x, H / 2 - 13 * F, x + wr + wp + 6 * F, H / 2 + 13 * F, 10 * F, fill=COR["seg"])
-            for i, (txt, w, z) in enumerate((("Rápido", wr, "rapido"), ("Profundo", wp, "profundo"))):
-                a = x + 3 * F + (wr if i else 0)
-                aceso = (z == "rapido" and hv != "profundo") or hv == z
+            t.ret(x, H / 2 - 13 * F, x + wseg + 6 * F, H / 2 + 13 * F, 10 * F, fill=COR["seg"])
+            a = x + 3 * F
+            for txt, w, z in opc:
+                aceso = (z == "rapido" and hv not in ("profundo", "resumo")) or hv == z
                 if aceso:
                     t.ret(a, H / 2 - 10 * F, a + w, H / 2 + 10 * F, 8 * F, fill=COR["seg_sel"])
                 t.texto(a + w / 2, H / 2, txt, COR["texto"] if aceso else "#C7C7CC", "sb", 13 * F, "mm")
-                t.zona(a, 0, a + w, H, z, "Coisa rápida" if z == "rapido" else "Análise profunda")
-        add(wr + wp + 6 * F, seg_fn)
+                t.zona(a, 0, a + w, H, z, {"rapido": "Coisa rápida", "profundo": "Análise profunda"}.get(z, "Cola a fala + prints e links"))
+                a += w
+        add(wseg + 6 * F, seg_fn)
         if e.get("fila", 1) > 1:
             txt = "+%d" % (e["fila"] - 1)
             add(largura_texto(txt, "m", 12 * F) + 16 * F, lambda t, x: t.texto(x + 8 * F, H / 2, txt, COR["texto2"], "m", 12 * F))
@@ -529,11 +540,12 @@ def painel(e, F=1.0):
             # 13/11 (ele: «deveria ter como eu clicar ali no profundo e mudar pra rápido... aquele slidezinho... que vai de um lado pro
             # outro, pro que tá escolhido. Caso eu tenha apertado por acidente»): o chip virou um seletor de dois lados; o lado
             # escolhido fica aceso e o outro é clicável (troca o MODO.json, não cola nada)
-            wr, wp = largura_texto("Rápido", "m", 11 * F) + 16 * F, largura_texto("Profundo", "m", 11 * F) + 16 * F
-            x0 = xr - wr - wp - 4 * F
+            lados = [(txt, largura_texto(txt, "m", 11 * F) + 16 * F, z) for txt, z in
+                     (("Rápido", "rapido"), ("Profundo", "profundo"), ("Resumo", "resumo"))]      # 15/11: + Resumo (clicar = faz e copia)
+            x0 = xr - sum(w for _, w, _ in lados) - 4 * F
             t.ret(x0, cy - 11 * F, xr, cy + 11 * F, 11 * F, fill=COR["seg"], outline="#48484A", w=1)
             xa = x0 + 2 * F
-            for txt, w, z in (("Rápido", wr, "rapido"), ("Profundo", wp, "profundo")):
+            for txt, w, z in lados:
                 if g["modo"] == z:
                     t.ret(xa, cy - 9 * F, xa + w, cy + 9 * F, 9 * F, fill=COR["seg_sel"])
                     t.texto(xa + w / 2, cy, txt, COR["texto"], "sb", 11 * F, "mm")
@@ -542,7 +554,8 @@ def painel(e, F=1.0):
                     if hv == zz:
                         t.ret(xa, cy - 9 * F, xa + w, cy + 9 * F, 9 * F, fill="#3A3A3C")
                     t.texto(xa + w / 2, cy, txt, COR["texto2"], "m", 11 * F, "mm")
-                    t.zona(xa, yy, xa + w, yy + 44 * F, zz, "Trocar pra %s (se apertou o outro sem querer)" % txt.lower())
+                    t.zona(xa, yy, xa + w, yy + 44 * F, zz, "Fazer o resumo desta (copia quando ficar pronto)" if z == "resumo"
+                           else "Trocar pra %s (se apertou o outro sem querer)" % txt.lower())
                 xa += w
             xr = x0 - 6 * F
             if g.get("lida"):
@@ -550,12 +563,13 @@ def painel(e, F=1.0):
                 t.zona(xr - 16 * F, yy, xr, yy + 44 * F, ("lida", i), "O Claude já leu")
                 xr -= 20 * F
         else:                               # sem modo: escolhe aqui e manda pro Claude (cola /kakashi rápido|profundo)
-            for txt, z in (("Profundo", ("profundo", i)), ("Rápido", ("rapido", i))):
+            for txt, z in (("Profundo", ("profundo", i)), ("Rápido", ("rapido", i)), ("Resumo", ("resumo", i))):
                 wchip = largura_texto(txt, "m", 11 * F) + 18 * F
                 t.ret(xr - wchip, cy - 11 * F, xr, cy + 11 * F, 11 * F, fill=COR["seg_sel"] if hv == z else COR["seg"],
                       outline="#48484A", w=1)
                 t.texto(xr - wchip / 2, cy, txt, COR["texto"], "m", 11 * F, "mm")
-                t.zona(xr - wchip, yy, xr, yy + 44 * F, z, "Ler no modo %s (cola /kakashi)" % txt.lower())
+                t.zona(xr - wchip, yy, xr, yy + 44 * F, z, "Fazer o resumo (copia quando ficar pronto)" if z[0] == "resumo"
+                       else "Ler no modo %s (cola /kakashi)" % txt.lower())
                 xr -= wchip + 6 * F
     y += H_lista + 18 * F
     # 4) PÉ: ajustes (atalho, tamanho da barra, barra pro canto, pasta, fechar)

@@ -281,9 +281,10 @@ def barra(e, F=1.0):
         # o fluxo normal»): marcado aqui = no fim não pergunta, já cola /kakashi <modo>. Clique de novo desmarca. Opcional.
         mc = e.get("marcado")
         add(14 * F, risco)
-        for txt, z in (("RAPIDO", "rapido"), ("PROFUNDO", "profundo")):
+        # 15/11: + RESUMO (no fim o Kakashi cola a fala + os prints/links, sem leitura)
+        for txt, z in (("RAPIDO", "rapido"), ("PROFUNDO", "profundo"), ("RESUMO", "resumo")):
             add(w_rotulo(txt), bt_txt(txt, "vermelho" if mc == z else "neutro", ("marcar", z)), ("marcar", z),
-                "DESMARCAR" if mc == z else "NO FIM: " + txt)
+                "DESMARCAR" if mc == z else ("NO FIM: COLA O RESUMO" if z == "resumo" else "NO FIM: " + txt))
             add(4 * F)
         add(10 * F, risco)
         add(w_rotulo("CONCLUIR"), bt_txt("CONCLUIR", "concluir", "concluir"), "concluir", "CONCLUIR = O ATALHO")
@@ -298,13 +299,24 @@ def barra(e, F=1.0):
         add(w_rotulo("COLAR TUDO", True), bt_txt("COLAR TUDO", "vermelho", "colar", "colar", "#ffffff"), "colar", "COLAR TUDO")
         add(4 * F)
         add(CEL, bt_ico("x", "#ff5c5c", "perigo", zona="sair_captura"), "sair_captura", "SAIR SEM COLAR")
-    else:                                  # a escolha: olho parado · «COMO EU LEIO?» · RÁPIDO | PROFUNDO · +N · X
+    elif e["modo"] == "resumo":            # 15/11: o RESUMO andando / pronto (só o letreiro: não tem o que clicar)
+        txt = (e.get("texto") or "RESUMO").upper()
+        cor_r = "amarelo" if ("COPIADO" in txt or "COLADO" in txt or "SAIU" in txt) else "branco"
+        add(CEL, lambda t, a, b: t.ico("colar", (a + b) / 2, BH / 2, "#FFD60A", E))
+
+        def letreiro_longo(t, a, b, txt=txt, cor_r=cor_r):        # o letreiro de sempre corta em 19 letras: este cabe o aviso inteiro
+            t.ret(a + 2, M, b - 2, BH - M, COR["linha"])
+            t.texto(a + int(8 * F), BH / 2, txt, cor_r, E)
+        add(largura_texto(txt, E) + int(18 * F), letreiro_longo)
+    else:                                 # a escolha: olho parado · «COMO EU LEIO?» · RÁPIDO | PROFUNDO · +N · X
         olho_x = sum(w for w, _, _, _ in itens) + BH / 2
         add(BH)
         add(w_let, letreiro(e.get("dica") or "COMO EU LEIO?", "amarelo" if e.get("dica") else "branco"))
         add(w_rotulo("RAPIDO", True), bt_txt("RAPIDO", "neutro", "rapido", "raio", "#ffd60a"), "rapido", "COISA RAPIDA")
         add(6 * F)
         add(w_rotulo("PROFUNDO", True), bt_txt("PROFUNDO", "vermelho", "profundo", "lupa", "#ffffff"), "profundo", "ANALISE PROFUNDA")
+        add(6 * F)
+        add(w_rotulo("RESUMO", True), bt_txt("RESUMO", "neutro", "resumo", "colar", "#ffffff"), "resumo", "COLA A FALA + PRINTS E LINKS")
         fila = e.get("fila", 1)
         if fila > 1:
             add(w_rotulo("+%d" % (fila - 1)), lambda t, a, b, f=fila: t.texto((a + b) / 2, BH / 2, "+%d" % (f - 1), "cinza", E, "mm"))
@@ -515,17 +527,18 @@ def painel(e, F=1.0):
         cy = yy + LIN / 2
         # da direita pra esquerda: DESCARTAR · ABRIR · o modo (ou RAPIDO/PROFUNDO pra escolher) · ✓ lida
         xr = W - m - 4 * F
-        for rot, z, est, dica in (("DESCARTAR", ("descartar", i), "perigo", "Descartar (Ctrl+Z volta)"),
-                                  ("ABRIR", ("abrir", i), "mini", "Abrir a pasta")):
-            wb = largura_texto(rot, E) + 16 * F
-            cor = t.botao(xr - wb, cy - 13 * F, xr, cy + 13 * F, est, hover=hv == z)
-            t.texto(xr - wb / 2, cy, rot, cor, E, "mm")
+        # 15/11: com o 3º modo (RESUMO) a data não cabia: ABRIR e DESCARTAR viraram ícone (pasta / X), igual no grafite
+        for ico, cor_i, z, est, dica in (("limpar", "#ff5c5c", ("descartar", i), "perigo", "Descartar (Ctrl+Z volta)"),
+                                         ("pasta", "#ffffff", ("abrir", i), "mini", "Abrir a pasta")):
+            wb = 30 * F
+            t.botao(xr - wb, cy - 13 * F, xr, cy + 13 * F, est, hover=hv == z)
+            t.ico(ico, xr - wb / 2, cy, cor_i, E)
             t.zona(xr - wb, yy, xr, yy + LIN, z, dica)
             xr -= wb + 4 * F
         xr -= 6 * F
         if g.get("modo"):
             # o seletor de dois lados (13/11): o escolhido aceso, o outro clicável (troca o MODO.json, não cola nada)
-            for txt_, z_ in (("PROFUNDO", "profundo"), ("RAPIDO", "rapido")):
+            for txt_, z_ in (("PROFUNDO", "profundo"), ("RAPIDO", "rapido"), ("RESUMO", "resumo")):   # 15/11: + RESUMO (clicar = faz e copia)
                 wb = largura_texto(txt_, E) + 14 * F
                 if g["modo"] == z_:
                     cor = t.botao(xr - wb, cy - 13 * F, xr, cy + 13 * F, "vermelho" if z_ == "profundo" else "neutro")
@@ -535,7 +548,8 @@ def painel(e, F=1.0):
                     if hv == zz:
                         t.borda(xr - wb, cy - 13 * F, xr, cy + 13 * F, "#8E8E96", max(1, int(F)))
                         cor = "branco"
-                    t.zona(xr - wb, yy, xr, yy + LIN, zz, "Trocar pra %s (se apertou o outro sem querer)" % txt_.lower())
+                    t.zona(xr - wb, yy, xr, yy + LIN, zz, "Fazer o resumo desta (copia quando ficar pronto)" if z_ == "resumo"
+                           else "Trocar pra %s (se apertou o outro sem querer)" % txt_.lower())
                 t.texto(xr - wb / 2, cy, txt_, cor, E, "mm")
                 xr -= wb
             xr -= 6 * F
@@ -544,11 +558,13 @@ def painel(e, F=1.0):
                 t.zona(xr - 10 * E, yy, xr, yy + LIN, ("lida", i), "O Claude já leu")
                 xr -= 12 * E
         else:                              # sem modo: escolhe aqui e manda pro Claude (cola /kakashi rápido|profundo)
-            for txt_, z_, est in (("PROFUNDO", ("profundo", i), "mini"), ("RAPIDO", ("rapido", i), "mini")):   # sem modo: os dois neutros, pra escolher
+            for txt_, z_, est in (("PROFUNDO", ("profundo", i), "mini"), ("RAPIDO", ("rapido", i), "mini"),
+                                  ("RESUMO", ("resumo", i), "mini")):   # sem modo: os três neutros, pra escolher
                 wb = largura_texto(txt_, E) + 14 * F
                 cor = t.botao(xr - wb, cy - 13 * F, xr, cy + 13 * F, est, hover=hv == z_)
                 t.texto(xr - wb / 2, cy, txt_, cor, E, "mm")
-                t.zona(xr - wb, yy, xr, yy + LIN, z_, "Ler no modo %s (cola /kakashi)" % txt_.lower())
+                t.zona(xr - wb, yy, xr, yy + LIN, z_, "Fazer o resumo (copia quando ficar pronto)" if z_[0] == "resumo"
+                       else "Ler no modo %s (cola /kakashi)" % txt_.lower())
                 xr -= wb + 4 * F
         # à esquerda, em duas linhas: quando · e o tipo, a duração e o resto (cortado no que couber)
         livre = xr - (m + 8 * F) - 6 * F
