@@ -621,6 +621,14 @@ ATUAL = None            # Sessao gravando/pausada
 ULTIMA = None           # pasta da ultima concluida
 FINALIZANDO = False
 COMANDOS = []
+
+
+def _limpar_comandos(motivo):
+    """15/11: um «concluir» que o painel travado nunca pegou ficava na fila e encerraria a PRÓXIMA gravação quando o painel acordasse.
+    Começou ou terminou uma gravação = o que estava na fila é velho. (Chamar com a TRAVA.)"""
+    if COMANDOS:
+        log_geral("fila de comando limpa ao %s: %s (velho, o painel não pegou)" % (motivo, ", ".join(COMANDOS)))
+        del COMANDOS[:]
 PAINEL = {"visto": 0.0, "versao": ""}
 
 # ------------------------------------------------------------------ microfone morto (30/10)
@@ -1159,6 +1167,7 @@ def iniciar(dados):
             if ATUAL.meta["estado"] == "pausado":
                 return retomar()
             return dict(status(), aviso="ja estava gravando")
+        _limpar_comandos("iniciou")
         cfg = ler_config()
         seq = dados.get("sequencia") or ""
         quando = datetime.now()
@@ -1568,6 +1577,7 @@ def concluir(dados=None):
         FINALIZANDO = True
         FINALIZANDO_PASTA[0] = alvo.pasta if isinstance(alvo, Sessao) else Path(alvo)
         ATUAL = None
+        _limpar_comandos("concluiu")
     try:
         meta = _finalizar(alvo)
     finally:

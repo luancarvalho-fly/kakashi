@@ -401,6 +401,10 @@ class VozViva:
 
 # ---------- gravação própria (tipo "pc") ----------
 class GravacaoPC:
+    # 15/11: atributo de CLASSE — o OlhoPremiere (filha) não chama este __init__; sem isto o Vigia dava AttributeError 'mic' 2x/s em
+    # toda gravação do Premiere desde a v2026.11.14.2 (e os prints de «fala» do olho se perdiam). None = mic_parado_s 0, _montar_fala nada.
+    mic = None
+
     def __init__(self, janela, k=None, replay=None):
         """replay = o que o Replay.parar() devolveu ({fim, segundos}): o relógio da sessão começa 'segundos' antes do atalho,
         os eventos desses 2 min (que o Vigia guardou na memória) entram já, e os arquivos do replay entram no começo no concluir"""
@@ -1585,6 +1589,8 @@ class Replay:
 
 # ---------- o controle (qual gravação está ligada, de quem) ----------
 class Kakashi:
+    modo_marcado = None         # 15/11: atributo de CLASSE também (quem monta o Kakashi sem o __init__, como o teste da troca, não quebra)
+
     def __init__(self):
         self.pc = None          # GravacaoPC
         self.fora = None        # "premiere" | "app_pessoal" quando fui eu que mandei gravar lá
@@ -1749,9 +1755,12 @@ class Kakashi:
         log("modo marcado durante a gravação: %s" % (self.modo_marcado or "nenhum (desmarcou)"))
         return self.modo_marcado
 
-    def _pedir_escolha(self, quem, pastas, colar):
+    def _pedir_escolha(self, quem, pastas, colar, marcado=False):
+        """marcado=False = usa a marca da barra de agora; o Premiere passa a marca guardada no aperto (15/11: ele só pede depois
+        que o painel concluiu de verdade)"""
         pastas = [p for p in pastas if p]
-        marcado, self.modo_marcado = self.modo_marcado, None
+        if marcado is False:
+            marcado, self.modo_marcado = self.modo_marcado, None
         if not pastas:
             return
         with self.esc_trava:
@@ -1969,6 +1978,30 @@ class Kakashi:
         ok = descartar({"pasta": g.pasta, "base": SESSOES})
         log("troca: parte PC %s %s" % (g.pasta, "descartada junto" if ok else "NÃO foi pro _descartadas"))
 
+    PREM_ESPERA_PAINEL_S = 6.0
+
+    def _concluir_premiere(self, pastas, marcado, via_painel):
+        """15/11 (ele: «o Kakashi deu uma bugadinha no final, eu tentei parar ele e não consegui»): o painel do Premiere travou às
+        17:36:42 (leitura lenta) e nunca pegou o «concluir» da fila; os apertos seguintes caíam na trava de 15 s. Agora: mandou pelo
+        painel e em PREM_ESPERA_PAINEL_S ele não parou de gravar → o próprio CORRETOR conclui direto. E o /kakashi só é copiado
+        DEPOIS que a sessão terminou de juntar (antes saía no aperto, com a gravação ainda aberta)."""
+        def estado():
+            return (http("http://127.0.0.1:7815/status", t=3) or {}).get("estado")
+        if via_painel:
+            t0 = time.time()
+            while time.time() - t0 < self.PREM_ESPERA_PAINEL_S and estado() in ("gravando", "pausado"):
+                time.sleep(0.5)
+            if estado() in ("gravando", "pausado"):
+                log("atalho: o painel do Premiere não concluiu em %.0f s (travado?): o CORRETOR conclui direto" % self.PREM_ESPERA_PAINEL_S)
+                via_painel = False
+        if not via_painel:
+            r = http("http://127.0.0.1:7815/concluir", {}, t=300) or {}
+            log("atalho: o CORRETOR concluiu direto: %s" % (r.get("sessao") or r.get("erro") or r))
+        t0 = time.time()
+        while time.time() - t0 < 180 and estado() not in ("parado", None):
+            time.sleep(0.5)
+        self._pedir_escolha("premiere", pastas, False, marcado=marcado)     # no Premiere só copia (Ctrl+V lá cola clipe)
+
     def _cancelar_troca_atrasada(self, t0):
         """concluiu a PC com o "iniciar" ainda na fila do painel: se o Premiere começar mesmo assim, cancela essa sobra"""
         while time.time() - t0 < self.TROCA_ESPERA_S + 5:
@@ -2017,22 +2050,20 @@ class Kakashi:
                 if self.troca_pc is not None:        # começou como PC e trocou: as duas partes são uma correção só
                     threading.Thread(target=self._descartar_parte_pc, args=(self.troca_pc,), daemon=True).start()
             else:
-                self._pedir_escolha("premiere", list(uf[1:]) if uf else [], False)     # no Premiere só copia (Ctrl+V lá cola clipe)
                 # 04/11 (queda de luz): o PC voltou com a sessão PAUSADA e o Premiere fechado; cada aperto virava um «concluir» na fila
                 # do painel, que não estava lá (8 na fila). Agora: aperto repetido em 15 s não conta, e sem o painel (nada há 5 s) o
                 # próprio CORRETOR conclui.
                 if time.time() - getattr(self, "ult_concluir_prem", 0) < 15:
-                    log("atalho: concluir do Premiere repetido em menos de 15 s, ignorado")
+                    log("atalho: concluir do Premiere repetido em menos de 15 s, ignorado (o primeiro já está cuidando)")
                     self.fora = None; self.troca_pc = None; return
                 self.ult_concluir_prem = time.time()
+                marcado, self.modo_marcado = self.modo_marcado, None
+                pastas = list(uf[1:]) if uf else []
                 visto = getattr(self, "prem_painel_s", None)
-                if visto is None or visto > 5:
-                    def _direto():
-                        r = http("http://127.0.0.1:7815/concluir", {}, t=300) or {}
-                        log("atalho: painel do Premiere fechado, o CORRETOR concluiu direto: %s" % (r.get("sessao") or r.get("erro") or r))
-                    threading.Thread(target=_direto, daemon=True).start()
-                else:
+                via_painel = not (visto is None or visto > 5)
+                if via_painel:
                     http("http://127.0.0.1:7815/comando", {"acao": "concluir"})
+                threading.Thread(target=self._concluir_premiere, args=(pastas, marcado, via_painel), daemon=True).start()
             self.fora = None; self.troca_pc = None; return
         if cancelar:
             return
