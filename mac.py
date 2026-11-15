@@ -11,6 +11,7 @@ continuam com o código do Windows; no Mac eles trocam as peças do sistema pela
 - foco_e_senha .................... campo de senha em foco (AXSecureTextField), pra não ler o que foi copiado dele
 - UIA.em .......................... o elemento debaixo do mouse (Acessibilidade), no mesmo formato do UI Automation do Windows
 - olho_em_toda_mesa ............... a bolinha do Sharingan em toda mesa (Space), sem ícone no Dock
+- IconeBarra ...................... 14/11: o olho do Kakashi na barra de menu (lá em cima): clique abre a janelinha
 Só lê. Nada aqui grava som nem mexe em ajuste do sistema.
 """
 import os, re, subprocess, threading, time
@@ -293,6 +294,51 @@ def olho_em_toda_mesa():
             w.setHidesOnDeactivate_(False)
         else:                                                              # a janelinha: abre na mesa de agora
             w.setCollectionBehavior_(AppKit.NSWindowCollectionBehaviorMoveToActiveSpace)
+
+
+# ------------------------------------------------------------------ o olho na barra de menu (14/11)
+class _AlvoBarra(AppKit.NSObject):
+    """quem recebe o clique do ícone da barra de menu (o AppKit chama clicou: na thread principal, a mesma do Tk)"""
+    def clicou_(self, remetente):
+        cb = getattr(self, "cb", None)
+        if cb is not None:
+            cb()
+
+
+class IconeBarra:
+    """14/11 (o Luan: «eu te pedi para você fazer o aplicativo para o Mac e você não fez. Pra pessoa ter acesso ao painel, tipo, igual
+    fica na barra de tarefa»): no Mac o Kakashi roda sem ícone no Dock (olho_em_toda_mesa), então o lugar dele é a BARRA DE MENU, lá em
+    cima, do lado do relógio. O olho parado = pronto; o Sharingan vermelho = gravando. Clique = abre a janelinha. Criar e mexer só na
+    thread do Tk (a principal)."""
+
+    def __init__(self, png_parado, png_gravando, ao_clicar):
+        self.imgs = {"parado": self._img(png_parado), "gravando": self._img(png_gravando) or self._img(png_parado)}
+        self.item = AppKit.NSStatusBar.systemStatusBar().statusItemWithLength_(AppKit.NSSquareStatusItemLength)
+        self.alvo = _AlvoBarra.alloc().init()
+        self.alvo.cb = ao_clicar
+        bt = self.item.button()
+        bt.setTarget_(self.alvo)
+        bt.setAction_("clicou:")
+        bt.setToolTip_("KAKASHI — clique pra abrir o painel")
+        self.atual = None
+        self.estado(False)
+
+    @staticmethod
+    def _img(png):
+        if not png or not os.path.isfile(png):
+            return None
+        im = AppKit.NSImage.alloc().initWithContentsOfFile_(png)
+        if im is not None:
+            im.setSize_((18, 18))           # a altura da barra de menu (o arquivo grande fica nítido na Retina)
+        return im
+
+    def estado(self, gravando):
+        k = "gravando" if gravando else "parado"
+        if k != self.atual and self.imgs.get(k) is not None:
+            self.atual = k
+            self.item.button().setImage_(self.imgs[k])
+            self.item.button().setToolTip_("KAKASHI — gravando · clique pra abrir o painel" if gravando
+                                           else "KAKASHI — clique pra abrir o painel")
 
 
 # ------------------------------------------------------------------ print

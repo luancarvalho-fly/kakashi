@@ -17,12 +17,13 @@ O que faz, peça por peça:
  4. grava o atalho no config.json (padrão no Mac: f1);
  5. o PAINEL DO PREMIERE: monta o .ccx e instala pelo instalador de plugins da Adobe (UPIA do Mac); sem UPIA, abre o .ccx no
     Creative Cloud (dois cliques); o servidor do painel (porta 7815) liga junto;
- 6. o APP «KAKASHI» em ~/Applications (Launchpad / Spotlight / Dock): abre a janelinha do Kakashi;
+ 6. o APP «KAKASHI» em ~/Applications (Launchpad / Spotlight) e FIXADO NO DOCK uma vez (14/11): abre a janelinha do Kakashi;
+    e o Kakashi, quando liga, põe o olho dele na BARRA DE MENU lá em cima (clique = a janelinha);
  7. liga com o Mac: dois LaunchAgents (com.flymedia.kakashi e com.flymedia.kakashi.premiere, só religam se caírem);
     os LaunchAgents antigos feitos à mão que apontam pra ESTA pasta são desligados e guardados com «.antes-instalador»;
  8. a skill /kakashi no Claude Code com os caminhos do Mac;
  9. lembra as permissões (Gravação de Tela, Acessibilidade, Microfone, Automação) — só a pessoa libera, nos Ajustes."""
-import datetime, glob, hashlib, json, os, plistlib, re, shutil, subprocess, sys, tempfile
+import datetime, glob, hashlib, json, os, plistlib, re, shutil, subprocess, sys, tempfile, urllib.parse
 
 UPIA_MAC = ("/Library/Application Support/Adobe/Adobe Desktop Common/RemoteComponents/UPI/UnifiedPluginInstallerAgent/"
             "UnifiedPluginInstallerAgent.app/Contents/MacOS/UnifiedPluginInstallerAgent")
@@ -188,6 +189,29 @@ def criar_app(dest, py):
                        capture_output=True)
     subprocess.run(["touch", APP], capture_output=True)     # o Finder relê o ícone
     print("  app KAKASHI em ~/Applications (Launchpad / Spotlight: «KAKASHI»): abre a janelinha")
+
+
+def fixar_no_dock(dest):
+    """14/11 (o Luan: «pra pessoa ter acesso ao painel, igual fica na barra de tarefa»): o app KAKASHI fixado no Dock, UMA vez por
+    instalação (config "dock_fixado"): se a pessoa tirar do Dock depois, a atualização não põe de volta. O olho na barra de menu lá
+    em cima é o outro caminho (o Kakashi põe sozinho quando liga)."""
+    cfgp = os.path.join(dest, "config.json")
+    c = ler_cfg(cfgp)
+    if c.get("dock_fixado") or c.get("dock") is False:
+        return
+    r = subprocess.run(["defaults", "read", "com.apple.dock", "persistent-apps"], capture_output=True, text=True)
+    if "KAKASHI.app" not in (r.stdout or ""):
+        url = "file://" + urllib.parse.quote(APP) + "/"
+        entrada = ("<dict><key>tile-data</key><dict><key>file-data</key><dict><key>_CFURLString</key><string>%s</string>"
+                   "<key>_CFURLStringType</key><integer>15</integer></dict></dict></dict>" % url)
+        w = subprocess.run(["defaults", "write", "com.apple.dock", "persistent-apps", "-array-add", entrada], capture_output=True, text=True)
+        if w.returncode != 0:
+            print("  AVISO: não fixei o KAKASHI no Dock (%s): arraste o app de ~/Applications pro Dock" % (w.stderr or "").strip()[-120:])
+            return
+        subprocess.run(["killall", "Dock"], capture_output=True)       # o Dock relê a lista (some e volta em 1 s)
+        print("  app KAKASHI fixado no Dock (clique = abre o painel); o olho do Kakashi também fica na barra de menu, lá em cima")
+    c["dock_fixado"] = True
+    gravar_cfg(cfgp, c)
 
 
 # ---------------------------------------------------------------- ligar com o Mac
@@ -408,6 +432,7 @@ def main(a, marca, dest):
     com_premiere = not (a.sem_premiere or c.get("premiere") is False)
     tem_painel = instalar_painel(dest) if com_premiere else False
     criar_app(dest, py)
+    fixar_no_dock(dest)
     skill_ok = False if a.sem_skill else instalar_skill(dest, a.trocar_skill, marca, nome_at)
     if a.so_atualizar:
         # 14/11 (Claude do Gu: o ProcessType não voltou ao atualizar): LaunchAgent do pacote que existe e ficou diferente do que

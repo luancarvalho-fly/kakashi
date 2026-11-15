@@ -1758,9 +1758,13 @@ class Kakashi:
             if any(os.path.normcase(p) in self.esc_vistas for p in pastas):
                 return
             self.esc_vistas.update(os.path.normcase(p) for p in pastas)
-            if marcado:          # 14/11: já marcado na gravação → nada de pergunta, o fluxo normal (MODO.json + cola o /kakashi)
+            # 14/11 ~22h (ele: «sem ter que criar entre rápido e profundo... você mesmo pela gravação tu já entende» → «Pode, faz as
+            # duas»): marcado na barra = vale a marca; sem marca = AUTOMÁTICO: cola «/kakashi» e o Claude decide pela gravação (a skill
+            # diz na 1ª linha por quê). config "modo_no_fim": "perguntar" volta a pergunta «COMO EU LEIO?» de 12/11.
+            if marcado or str(cfg().get("modo_no_fim", "auto")).lower() != "perguntar":
                 e = {"quem": quem, "pastas": pastas, "colar": bool(colar), "t": round(time.time(), 2)}
-                threading.Thread(target=self._aplicar_modo, args=(e, marcado, "na gravação"), daemon=True).start()
+                threading.Thread(target=self._aplicar_modo, args=(e, marcado, "na gravação" if marcado else "automático"),
+                                 daemon=True).start()
                 return
             self.escolhas.append({"quem": quem, "pastas": pastas, "colar": bool(colar), "t": round(time.time(), 2)})
             self._salvar_escolhas()
@@ -1802,7 +1806,12 @@ class Kakashi:
         self._aplicar_modo(e, modo, "no fim")
 
     def _aplicar_modo(self, e, modo, quando_escolheu):
-        """MODO.json em cada pasta da correção + cola «/kakashi rápido|profundo» (no fim pela barra, ou marcado durante a gravação)"""
+        """MODO.json em cada pasta da correção + cola «/kakashi rápido|profundo» (no fim pela barra, ou marcado durante a gravação).
+        modo None = automático: sem MODO.json, cola só «/kakashi» (quem decide é o Claude, pela gravação)."""
+        if not modo:
+            log("escolha: %s → AUTOMÁTICO (o Claude decide pela gravação)" % ", ".join(os.path.basename(p) for p in e["pastas"]))
+            colar_kakashi(e["colar"], "/kakashi")
+            return
         quando = datetime.datetime.now().replace(microsecond=0).isoformat()
         for p in e["pastas"]:
             if not os.path.isdir(p):
@@ -2661,6 +2670,14 @@ class Tela:
         if MAC:     # porte pro Mac: a barra em toda mesa (Space), sem o Mac pular de mesa quando ela aparece
             try: mac.olho_em_toda_mesa()
             except Exception as e: log("mesa: %r" % e)
+        self.icone_barra = None
+        if MAC:     # 14/11: o olho na barra de menu do Mac = o «igual fica na barra de tarefa» do Windows (clique abre a janelinha)
+            try:
+                self.icone_barra = mac.IconeBarra(os.path.join(ICONES, "olho.png"), os.path.join(ICONES, "giro_00.png"),
+                                                  lambda: self.root.after(0, self.abrir_painel))
+                log("barra de menu do Mac: olho do Kakashi lá em cima (clique abre o painel)")
+            except Exception as e:
+                log("barra de menu do Mac: não montou (%r)" % e)
         self.desenho = None
         if not MAC:
             try:
@@ -2875,6 +2892,11 @@ class Tela:
         self.root.after(50, self._tique)
 
     def _tique_corpo(self):
+        if self.icone_barra is not None:          # 14/11: o olho da barra de menu do Mac vira o Sharingan gravando
+            try:
+                self.icone_barra.estado(bool(self.quem))
+            except Exception as e:
+                log("barra de menu do Mac: %r" % e); self.icone_barra = None
         try:
             while True:
                 tipo, info = self.fila.get_nowait()

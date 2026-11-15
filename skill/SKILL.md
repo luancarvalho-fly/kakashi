@@ -20,13 +20,24 @@ Pasta do Kakashi: `%LOCALAPPDATA%\Programs\Kakashi-Fly\` (abaixo, "a pasta"). Py
    `COBERTURA.md` «RESULTADO: OK»; PROFUNDO = `LEITURA-CLAUDE.md` + `PROMPT.md` + `SABOTADOR.md`; gravação sem modo (antes de 12/11)
    = o de antes. `python kakashi_lidas.py faltando` lista as gravações do dia que ficaram sem essa análise.
 
-## O MODO — RÁPIDO × PROFUNDO, quem escolhe é a pessoa (Kakashi 3.0, 12/11/2026)
-A pessoa pode MARCAR RÁPIDO ou PROFUNDO na barra durante a gravação (14/11, pedido do Gu): aí o fim não pergunta, já grava o
-`MODO.json` (`"escolhido": "na gravação"`) e cola o `/kakashi <modo>`. Sem marcar: ao concluir, a BARRA do Kakashi (no meio da tela) pergunta «COMO EU LEIO?» RÁPIDO ou PROFUNDO. O clique grava `MODO.json` na pasta da
-gravação e cola `/kakashi rápido` ou `/kakashi profundo`. O modo vem do argumento do /kakashi ou do `MODO.json` (`kakashi_lidas.py
-novas` mostra). **Nunca é o Claude que escolhe:** sem modo → perguntar à pessoa e gravar com `python kakashi_lidas.py modo "<pasta>"
-rapido|profundo`. (Fala do Luan, 12/11: «o sabotador seria melhor só pra correção pesada mesmo... às vezes eu sinto que o Kakashi demora
-muito pra resolver coisas bobas» · «coisa rápida, ou coisa mais profunda... eu que tenho que colocar ali».)
+## O MODO — RÁPIDO × PROFUNDO (Kakashi 3.0, 12/11; AUTOMÁTICO desde 14/11)
+**AUTOMÁTICO (14/11 ~22h; o Luan: «você mesmo pela gravação tu já entende se é rápido ou profundo, para não ter que ficar
+clicando nisso» → «Pode, faz as duas»):** ao concluir o Kakashi NÃO pergunta mais: cola só `/kakashi`. De onde vem o modo, nesta ordem:
+1. o argumento do /kakashi (`/kakashi rápido|profundo`);
+2. o `MODO.json` da pasta: a pessoa pode MARCAR RÁPIDO ou PROFUNDO na barra durante a gravação (`"escolhido": "na gravação"`) ou
+   escolher na janelinha — marcado VENCE;
+3. nenhum dos dois → **o Claude decide pela gravação**, depois de ler a `LEITURA.md` e antes de escrever qualquer coisa:
+
+| vira | quando |
+|---|---|
+| RÁPIDO | fala curta (até ~2 min), pedidos concretos e poucos (troca, ajusta, tira, aumenta, muda a cor...), um assunto só |
+| PROFUNDO | explicação ou ensino, edição de vídeo, vários assuntos, «isso é importante», «aprende isso», regra nova, gravação longa (mais de ~3 min), ou a pessoa voltando num erro que já cobrou antes |
+| na dúvida | PROFUNDO (gastar a mais é melhor do que deixar passar) |
+
+Gravar: `python kakashi_lidas.py modo "<pasta>" rapido|profundo --auto "<motivo em uma frase>"`. **A 1ª linha da resposta diz o modo e
+o porquê:** «Li como RÁPIDO: <motivo>. Se quiser o profundo, é só dizer.» Pediu o outro → trocar o `MODO.json` e fazer o que o modo
+novo cobra a mais. (Antes, 12/11: «coisa rápida, ou coisa mais profunda... eu que tenho que colocar ali» — a escolha manual continua
+existindo pela marca na barra; config `"modo_no_fim": "perguntar"` volta a pergunta «COMO EU LEIO?» no fim.)
 
 | | RÁPIDO (mudancinha, coisa boba) | PROFUNDO (explicação, edição, ensinamento, gravação longa) |
 |---|---|---|

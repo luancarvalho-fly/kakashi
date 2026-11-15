@@ -94,11 +94,14 @@ def modo(p):
         return None
 
 
-def gravar_modo(p, md):
+def gravar_modo(p, md, motivo=None):
+    """motivo = 14/11: o modo AUTOMÁTICO (sem marca na barra, o Claude decide pela gravação e diz por quê)"""
     md = {"rápido": "rapido", "rapido": "rapido", "profundo": "profundo"}.get(md.strip().lower())
     if not md or not os.path.isdir(p):
-        sys.exit("uso: kakashi_lidas.py modo <pasta> rapido|profundo")
+        sys.exit("uso: kakashi_lidas.py modo <pasta> rapido|profundo [--auto \"<motivo>\"]")
     d = {"modo": md, "escolhido_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "quem": "chat", "pastas": [p]}
+    if motivo:
+        d.update(escolhido="automático", motivo=motivo)
     json.dump(d, open(os.path.join(p, "MODO.json"), "w", encoding="utf-8"), ensure_ascii=False, indent=1)
     print("modo gravado:", md, "em", p)
 
@@ -197,7 +200,7 @@ def main():
     elif a[0] == "quem":
         print(ja_lida(a[1], lidas_skill()) or "ninguém leu ainda")
     elif a[0] == "modo" and len(a) >= 3:
-        gravar_modo(a[1], a[2])
+        gravar_modo(a[1], a[2], a[a.index("--auto") + 1] if "--auto" in a and a.index("--auto") + 1 < len(a) else None)
 
 
 if __name__ == "__main__":
