@@ -243,6 +243,7 @@ class Recorte:
         self.cv.create_image(0, 0, image=self._fundo, anchor="nw")
         self.caixa = None; self.ini = None; self.ferr = "caneta"; self.cor = 0
         self.tracos = []; self.atual = None; self.barra = []; self.hover = None
+        self.redim = None; self._cursor = "crosshair"
         self.cv.create_text((r - l) // 2, int(40 * self.F), text="Arraste a área · Esc sai", fill="#FFFFFF",
                             font=("Segoe UI", int(13 * self.F)), tags="dica")
         for ev, f in (("<ButtonPress-1>", self._apertou), ("<B1-Motion>", self._arrastou), ("<ButtonRelease-1>", self._soltou),
@@ -256,10 +257,63 @@ class Recorte:
         self.win.focus_force()
 
     # coordenadas: tudo no canvas (0,0 = canto do monitor)
+    # 15/11 (Kakashi 16:10 [2:36–2:52], ele: «bota pra eu poder clicar aqui e redimensionar de novo, igual no Lightshot»): ele clicou
+    # na borda da área pra ajustar e o recorte apagou a área E os desenhos e começou outra. Agora a borda e as 8 alças (cantos e meio
+    # dos lados) pegam o arrasto e mudam o tamanho; os desenhos ficam onde estão (coordenadas da tela). Longe da borda, fora da área,
+    # continua começando outra.
+    def _borda(self, x, y):
+        if self.caixa is None:
+            return None
+        x0, y0, x1, y1 = self.caixa
+        # por FORA da borda pega ~10 px; por dentro só 3 px (ou em cima da alça), pra não roubar o traço que ele começa perto
+        # da borda (sabotador 15/11: as caixas dele começam 15–18 px pra dentro)
+        T, D, A = max(8, int(10 * self.F)), 3, max(5, int(7 * self.F))
+        if not (x0 - T <= x <= x1 + T and y0 - T <= y <= y1 + T):
+            return None
+        mx, my = (x0 + x1) / 2, (y0 + y1) / 2
+        na_alca = any(abs(x - hx) <= A and abs(y - hy) <= A for hx in (x0, mx, x1) for hy in (y0, my, y1) if (hx, hy) != (mx, my))
+        if not na_alca and x0 + D < x < x1 - D and y0 + D < y < y1 - D:
+            return None
+        lado = ""
+        if y0 - T <= y <= y0 + (A if na_alca else D):
+            lado += "n"
+        elif y1 - (A if na_alca else D) <= y <= y1 + T:
+            lado += "s"
+        if x0 - T <= x <= x0 + (A if na_alca else D):
+            lado += "w"
+        elif x1 - (A if na_alca else D) <= x <= x1 + T:
+            lado += "e"
+        return lado or None
+
+    _CURSOR = {"n": "sb_v_double_arrow", "s": "sb_v_double_arrow", "w": "sb_h_double_arrow", "e": "sb_h_double_arrow",
+               "nw": "size_nw_se", "se": "size_nw_se", "ne": "size_ne_sw", "sw": "size_ne_sw"}
+
+    def _redimensionar(self, x, y):
+        lado, (x0, y0, x1, y1) = self.redim
+        W, H = self.win.winfo_width(), self.win.winfo_height()
+        x, y = min(max(x, 0), W), min(max(y, 0), H)
+        if "w" in lado:
+            x0 = x
+        if "e" in lado:
+            x1 = x
+        if "n" in lado:
+            y0 = y
+        if "s" in lado:
+            y1 = y
+        x0, x1 = min(x0, x1), max(x0, x1)
+        y0, y1 = min(y0, y1), max(y0, y1)
+        if x1 - x0 >= 6 and y1 - y0 >= 6:
+            self._mostrar_area(x0, y0, x1, y1)
+
     def _apertou(self, e):
         z = self._zona(e.x, e.y)
         if z is not None:
             return self._clique(z)
+        lado = self._borda(e.x, e.y)
+        if lado:
+            self.redim = (lado, self.caixa)
+            self.cv.delete("barra"); self.barra = []
+            return
         if self.caixa is None:
             self.ini = (e.x, e.y)
             return
@@ -270,6 +324,8 @@ class Recorte:
             self.caixa = None; self.tracos = []; self.cv.delete("area", "traco", "barra"); self.ini = (e.x, e.y)
 
     def _arrastou(self, e):
+        if self.redim is not None:
+            return self._redimensionar(e.x, e.y)
         if self.ini is not None:
             x0, y0 = self.ini
             self._mostrar_area(min(x0, e.x), min(y0, e.y), max(x0, e.x), max(y0, e.y))
@@ -286,6 +342,10 @@ class Recorte:
             self._desenhar_traco(self.atual)
 
     def _soltou(self, e):
+        if self.redim is not None:
+            self._redimensionar(e.x, e.y)
+            self.redim = None
+            return self._barra()
         if self.ini is not None:
             x0, y0 = self.ini; self.ini = None
             if abs(e.x - x0) < 6 or abs(e.y - y0) < 6:
@@ -302,6 +362,11 @@ class Recorte:
 
     def _mexeu(self, e):
         z = self._zona(e.x, e.y)
+        lado = None if z is not None else self._borda(e.x, e.y)
+        cur = self._CURSOR.get(lado, "crosshair")
+        if cur != self._cursor:
+            self._cursor = cur
+            self.cv.configure(cursor=cur)
         if z != self.hover:
             self.hover = z
             if self.caixa:
@@ -316,7 +381,15 @@ class Recorte:
         self.cv.create_rectangle(x0 - 1, y0 - 1, x1 + 1, y1 + 1, outline="#FFFFFF", width=1, tags="area")
         self.cv.create_text(x0, y0 - 8, text="%d × %d" % (x1 - x0, y1 - y0), fill="#FFFFFF", anchor="sw",
                             font=("Segoe UI", int(10 * self.F)), tags="area")
+        # as 8 alças do Lightshot (cantos e meio dos lados): mostram que dá pra puxar
+        a = max(3, int(4 * self.F))
+        for hx in (x0, (x0 + x1) / 2, x1):
+            for hy in (y0, (y0 + y1) / 2, y1):
+                if hx == (x0 + x1) / 2 and hy == (y0 + y1) / 2:
+                    continue
+                self.cv.create_rectangle(hx - a, hy - a, hx + a, hy + a, fill="#FFFFFF", outline="#000000", width=1, tags="area")
         self.cv.tag_raise("traco")
+        self.cv.tag_raise("barra")
 
     def _desenhar_traco(self, tr):
         for i in tr["itens"]:
