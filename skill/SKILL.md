@@ -21,7 +21,8 @@ Pasta do Kakashi: `%LOCALAPPDATA%\Programs\Kakashi-Fly\` (abaixo, "a pasta"). Py
    = o de antes. `python kakashi_lidas.py faltando` lista as gravações do dia que ficaram sem essa análise.
 
 ## O MODO — RÁPIDO × PROFUNDO, quem escolhe é a pessoa (Kakashi 3.0, 12/11/2026)
-Ao concluir, a BARRA do Kakashi (no meio da tela) pergunta «COMO EU LEIO?» RÁPIDO ou PROFUNDO. O clique grava `MODO.json` na pasta da
+A pessoa pode MARCAR RÁPIDO ou PROFUNDO na barra durante a gravação (14/11, pedido do Gu): aí o fim não pergunta, já grava o
+`MODO.json` (`"escolhido": "na gravação"`) e cola o `/kakashi <modo>`. Sem marcar: ao concluir, a BARRA do Kakashi (no meio da tela) pergunta «COMO EU LEIO?» RÁPIDO ou PROFUNDO. O clique grava `MODO.json` na pasta da
 gravação e cola `/kakashi rápido` ou `/kakashi profundo`. O modo vem do argumento do /kakashi ou do `MODO.json` (`kakashi_lidas.py
 novas` mostra). **Nunca é o Claude que escolhe:** sem modo → perguntar à pessoa e gravar com `python kakashi_lidas.py modo "<pasta>"
 rapido|profundo`. (Fala do Luan, 12/11: «o sabotador seria melhor só pra correção pesada mesmo... às vezes eu sinto que o Kakashi demora

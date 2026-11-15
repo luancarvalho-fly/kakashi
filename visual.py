@@ -296,7 +296,20 @@ def barra(e, F=1.0):
                 "desfazer", "Desfazer o último")
             add(passo, lambda t, x: _botao_redondo(t, x + passo / 2, H / 2, r_bt, "limpar", int(16 * F), COR["texto"], hover=hv == "limpar"),
                 "limpar", "Limpar os desenhos")
+        # 14/11 (pedido do Gu): Rápido / Profundo marcado durante a gravação = no fim já cola /kakashi <modo> (clique de novo desmarca)
+        mc = e.get("marcado")
         add(14 * F, lambda t, x: t.linha(x + 7 * F, H * .28, x + 7 * F, H * .72, COR["borda"], 1 * F))
+        for txt, z in (("Rápido", "rapido"), ("Profundo", "profundo")):
+            wm = largura_texto(txt, "sb", 12 * F) + 22 * F
+
+            def marca_fn(t, x, txt=txt, z=z, wm=wm):
+                on, hov = mc == z, hv == ("marcar", z)
+                t.ret(x + 2 * F, H / 2 - 11 * F, x + wm - 2 * F, H / 2 + 11 * F, 11 * F,
+                      fill=COR["vermelho"] if on else (COR["seg_sel"] if hov else COR["seg"]))
+                t.texto(x + wm / 2, H / 2, txt, COR["texto"], "sb", 12 * F, "mm")
+            add(wm, marca_fn, ("marcar", z), "Desmarcar" if mc == z else "No fim já cola /kakashi " + txt.lower())
+            add(4 * F)
+        add(10 * F, lambda t, x: t.linha(x + 5 * F, H * .28, x + 5 * F, H * .72, COR["borda"], 1 * F))
         wc = largura_texto("Concluir", "sb", 13 * F) + 30 * F
         add(wc, lambda t, x: (t.ret(x + 2 * F, H / 2 - 12 * F, x + wc - 2 * F, H / 2 + 12 * F, 12 * F,
                                     fill="#E5E5EA" if hv == "concluir" else COR["texto"]),

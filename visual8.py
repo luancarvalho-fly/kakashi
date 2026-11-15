@@ -277,7 +277,15 @@ def barra(e, F=1.0):
             add(6 * F)
             add(CEL, bt_ico("desfazer", "#ffffff", zona="desfazer"), "desfazer", "DESFAZER O ULTIMO")
             add(CEL, bt_ico("limpar", "#ffffff", zona="limpar"), "limpar", "LIMPAR OS DESENHOS")
+        # 14/11 (pedido do Gu, o Luan: «marcar intra-gravação... aparece ali rápido ou profundo, eu já clico. E aí quando termino, vira
+        # o fluxo normal»): marcado aqui = no fim não pergunta, já cola /kakashi <modo>. Clique de novo desmarca. Opcional.
+        mc = e.get("marcado")
         add(14 * F, risco)
+        for txt, z in (("RAPIDO", "rapido"), ("PROFUNDO", "profundo")):
+            add(w_rotulo(txt), bt_txt(txt, "vermelho" if mc == z else "neutro", ("marcar", z)), ("marcar", z),
+                "DESMARCAR" if mc == z else "NO FIM: " + txt)
+            add(4 * F)
+        add(10 * F, risco)
         add(w_rotulo("CONCLUIR"), bt_txt("CONCLUIR", "concluir", "concluir"), "concluir", "CONCLUIR = O ATALHO")
         add(4 * F)
         add(CEL, bt_ico("x", "#ff5c5c", "perigo", zona="cancelar"), "cancelar", "CANCELAR TUDO")

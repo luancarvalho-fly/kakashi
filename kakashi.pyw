@@ -1601,6 +1601,7 @@ class Kakashi:
         self.olho_prem = None       # 23/10: OlhoPremiere — o olho do PC dentro da sessão do painel enquanto ele grava
         # 3.0 (12/11): a escolha RÁPIDO × PROFUNDO depois de concluir (uma por correção, na ordem), o desenho e o pedido pro Chrome
         self.esc_trava = threading.Lock()
+        self.modo_marcado = None        # 14/11: RÁPIDO/PROFUNDO marcado na barra DURANTE a gravação (no fim não pergunta)
         self.escolhas = self._carregar_escolhas()
         self.esc_vistas = {os.path.normcase(p) for e in self.escolhas for p in e["pastas"]}
         self.ult_fora = None        # (quem, pasta) da gravação de fora (Premiere/app de cartões): concluiu lá = a escolha aparece igual
@@ -1716,6 +1717,7 @@ class Kakashi:
             d["olho_premiere"] = self.olho_prem.pasta
         d["ferramenta"] = self.desenho.ferr if self.desenho is not None else "cursor"      # 3.0
         d["escolha_pendente"] = len(self.escolhas)
+        d["modo_marcado"] = self.modo_marcado          # 14/11: marcado na barra durante a gravação
         pc_ = self.pedido_chrome
         if pc_ is not None and time.time() - pc_["t"] < 4:  # 3.0: a extensão descreve o elemento do Chrome debaixo da ponta do traço
             d["pedido_chrome"] = {c: pc_[c] for c in ("id", "x", "y", "escala")}
@@ -1739,20 +1741,34 @@ class Kakashi:
         except OSError as e:
             log("escolha: não salvei a lista: %r" % e)
 
+    def marcar_modo(self, modo):
+        """14/11 (pedido do Gu; o Luan: «da pessoa querer marcar intra-gravação... aparece ali rápido ou profundo, eu já clico. E aí
+        quando termino, vira o fluxo normal»): o clique na barra gravando marca; o mesmo clique de novo desmarca. Opcional: sem
+        marcar, o fim pergunta como sempre."""
+        self.modo_marcado = None if self.modo_marcado == modo else modo
+        log("modo marcado durante a gravação: %s" % (self.modo_marcado or "nenhum (desmarcou)"))
+        return self.modo_marcado
+
     def _pedir_escolha(self, quem, pastas, colar):
         pastas = [p for p in pastas if p]
+        marcado, self.modo_marcado = self.modo_marcado, None
         if not pastas:
             return
         with self.esc_trava:
             if any(os.path.normcase(p) in self.esc_vistas for p in pastas):
                 return
             self.esc_vistas.update(os.path.normcase(p) for p in pastas)
+            if marcado:          # 14/11: já marcado na gravação → nada de pergunta, o fluxo normal (MODO.json + cola o /kakashi)
+                e = {"quem": quem, "pastas": pastas, "colar": bool(colar), "t": round(time.time(), 2)}
+                threading.Thread(target=self._aplicar_modo, args=(e, marcado, "na gravação"), daemon=True).start()
+                return
             self.escolhas.append({"quem": quem, "pastas": pastas, "colar": bool(colar), "t": round(time.time(), 2)})
             self._salvar_escolhas()
         log("escolha: %s %s esperando RÁPIDO ou PROFUNDO" % (quem, ", ".join(os.path.basename(p) for p in pastas)))
 
     def _nao_perguntar(self, *pastas):
         """cancelou: essas pastas nunca pedem escolha (vão pro _descartadas)"""
+        self.modo_marcado = None
         with self.esc_trava:
             self.esc_vistas.update(os.path.normcase(p) for p in pastas if p)
 
@@ -1783,16 +1799,21 @@ class Kakashi:
                 return
             e = self.escolhas.pop(0)
             self._salvar_escolhas()
+        self._aplicar_modo(e, modo, "no fim")
+
+    def _aplicar_modo(self, e, modo, quando_escolheu):
+        """MODO.json em cada pasta da correção + cola «/kakashi rápido|profundo» (no fim pela barra, ou marcado durante a gravação)"""
         quando = datetime.datetime.now().replace(microsecond=0).isoformat()
         for p in e["pastas"]:
             if not os.path.isdir(p):
                 log("escolha: %s saiu do lugar, sem MODO.json" % p); continue
             try:
                 with open(os.path.join(p, "MODO.json"), "w", encoding="utf-8") as f:
-                    json.dump({"modo": modo, "escolhido_em": quando, "quem": e["quem"], "pastas": e["pastas"]}, f, ensure_ascii=False, indent=1)
+                    json.dump({"modo": modo, "escolhido_em": quando, "escolhido": quando_escolheu, "quem": e["quem"], "pastas": e["pastas"]},
+                              f, ensure_ascii=False, indent=1)
             except OSError as ex:
                 log("escolha: MODO.json em %s: %r" % (p, ex))
-        log("escolha: %s → %s" % (", ".join(os.path.basename(p) for p in e["pastas"]), modo.upper()))
+        log("escolha: %s → %s (%s)" % (", ".join(os.path.basename(p) for p in e["pastas"]), modo.upper(), quando_escolheu))
         colar_kakashi(e["colar"], "/kakashi " + ("rápido" if modo == "rapido" else "profundo"))
 
     def descartar_escolha(self):
@@ -2007,6 +2028,7 @@ class Kakashi:
         if cancelar:
             return
         tipo, j = tipo_da_frente()
+        self.modo_marcado = None              # 14/11: gravação nova começa sem modo marcado
         log("começar: %s (%s · %s)" % (tipo, j["app"], j["titulo"][:60]))
         self.ultima_voz = time.time()
         info = self.replay.parar()            # o buffer solta o microfone/tela antes de a gravação abrir
@@ -2789,6 +2811,8 @@ class Tela:
             self.captura_fim(False)
         elif zona in ("rapido", "profundo"):
             self._escolher(zona)
+        elif isinstance(zona, tuple) and zona[0] == "marcar":          # 14/11: marcado durante a gravação
+            self.k.marcar_modo(zona[1]); self._forcar()
         elif zona == "descartar":
             self._descartar_escolha()
         elif isinstance(zona, tuple) and zona[0] == "ped":
@@ -2976,7 +3000,7 @@ class Tela:
         if self.quem:
             s = int(time.time() - self.desde) if self.desde else 0
             e.update(tempo="%d:%02d" % (s // 60, s % 60), quem={"pc": "PC", "app_pessoal": "AppPessoal", "premiere": "Premiere"}.get(self.quem, ""),
-                     pausado=self.pausado, mudo=self.mudo, pedacos=self._pedacos()[-12:],
+                     pausado=self.pausado, mudo=self.mudo, pedacos=self._pedacos()[-12:], marcado=getattr(self.k, "modo_marcado", None),
                      ferr=d.ferr if d is not None else None, cor=d.cor if d is not None else 0)
         else:
             e["fila"] = (self.escolha or {}).get("fila", 1)
