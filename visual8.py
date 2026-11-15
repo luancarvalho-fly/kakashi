@@ -9,7 +9,7 @@ trocar o modo, nível da voz, − / + da barra, botões do pacote do time).
 
 Mesma interface do visual.py (o Grafite), que continua aí: config "visual": "grafite" volta pra ele (tema.py escolhe).
 Bônus pro Mac: o 8 bits não usa fonte do sistema (o Grafite procurava Inter/Segoe do Windows e no Mac caía na fonte de emergência)."""
-import os
+import os, re
 
 from PIL import Image, ImageDraw, ImageEnhance
 
@@ -418,10 +418,18 @@ def painel(e, F=1.0):
         leg = leg[:-1]
     t.texto(xt + 14 * E, y + 52 * F, leg, "vermelho", E)
     # o microfone e o nível da voz, à direita do topo
-    mic = (e.get("mic") or "SEM MICROFONE").upper()
+    mic = (e.get("mic") or "SEM MICROFONE").strip()
+    # 14/11 (print do Gu: «MICROFONE (MACBOOK P»): o Mac chama de «Microfone (MacBook Pro)» — o ícone já diz que é microfone,
+    # então fica só o que está entre parênteses; e o que não couber termina em «..» (não some no meio da palavra sem aviso)
+    mm = re.match(r"^\s*(microfone|microphone|mic)\s*\((.+)\)\s*$", mic, re.I)
+    if mm:
+        mic = mm.group(2)
+    mic = mic.upper()
     xm = W - m - 4 * F
-    while len(mic) > 4 and largura_texto(mic, E) > W * 0.36:
-        mic = mic[:-1]
+    if largura_texto(mic, E) > W * 0.36:
+        while len(mic) > 4 and largura_texto(mic + "..", E) > W * 0.36:
+            mic = mic[:-1]
+        mic = mic.rstrip() + ".."
     t.texto(xm, y + 14 * F, mic, "cinza", E, "rm")
     t.ico("mic", xm - largura_texto(mic, E) - 8 * E, y + 14 * F, "#8E8E96", E)
     medidor = []

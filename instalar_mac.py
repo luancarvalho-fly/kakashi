@@ -242,6 +242,26 @@ def ligar(dest, py, com_premiere):
         print("  liga com o Mac: %s %s" % (rot, "OK" if r.returncode == 0 else "FALHOU (%s)" % (r.stderr.strip()[-160:])))
 
 
+def plists_mudaram(dest, py, com_premiere):
+    """algum LaunchAgent do pacote já instalado está diferente do que o ligar() escreveria agora? (instalação sem ligar = não cria)"""
+    itens = [("kakashi", os.path.join(dest, "kakashi.pyw"), dest)]
+    if com_premiere:
+        itens.append(("premiere", os.path.join(dest, "premiere", "servidor.py"), os.path.join(dest, "premiere")))
+    for chave, script, pasta in itens:
+        rot = ROTULOS[chave]
+        caminho = os.path.join(AGENTES, rot + ".plist")
+        if not os.path.isfile(caminho):
+            continue
+        try:
+            with open(caminho, "rb") as f:
+                atual = plistlib.load(f)
+        except Exception:
+            return True
+        if atual != _plist(rot, py, script, pasta, os.path.join(pasta, chave + "-launchd.log")):
+            return True
+    return False
+
+
 def reiniciar(com_premiere):
     for chave in (("kakashi", "premiere") if com_premiere else ("kakashi",)):
         subprocess.run(["launchctl", "kickstart", "-k", "gui/%s/%s" % (_uid(), ROTULOS[chave])], capture_output=True)
@@ -390,7 +410,13 @@ def main(a, marca, dest):
     criar_app(dest, py)
     skill_ok = False if a.sem_skill else instalar_skill(dest, a.trocar_skill, marca, nome_at)
     if a.so_atualizar:
-        reiniciar(com_premiere)
+        # 14/11 (Claude do Gu: o ProcessType não voltou ao atualizar): LaunchAgent do pacote que existe e ficou diferente do que
+        # esta versão escreveria = religa com o novo (o ligar já reinicia); igual = só reinicia, como antes
+        if plists_mudaram(dest, py, com_premiere):
+            print("  os LaunchAgents mudaram nesta versão: religando com o novo")
+            ligar(dest, py, com_premiere)
+        else:
+            reiniciar(com_premiere)
         print("Atualizado e reiniciado.")
         return
     if not a.sem_ligar:

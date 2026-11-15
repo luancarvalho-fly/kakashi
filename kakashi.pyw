@@ -3211,8 +3211,16 @@ class Painel:
             if MAC:
                 self.win.resizable(True, True)
             self.win.geometry("%dx%d+%d+%d" % (w, h, x, y))
+            self.win.update_idletasks()
             if MAC:
-                self.win.update_idletasks(); self.win.resizable(False, False)
+                self.win.resizable(False, False)
+            # 14/11 (print do Gu na v.4: janela 874 pt e o pé cortado): se o sistema deu menos altura do que o desenho pede,
+            # guarda o que deu e redesenha com menos gravadas (a lista encolhe até caber no que a janela tem de verdade)
+            hh = self.win.winfo_height()
+            if 50 < hh < h - 2:
+                self._teto = hh - 2
+                self.ass = None
+                log("janelinha: o sistema deu %d de altura pra um desenho de %d: encolhendo a lista" % (hh, h))
         except Exception as ex:
             log("janelinha: ajustar o tamanho: %r" % ex)
 
@@ -3226,8 +3234,9 @@ class Painel:
             self.rot_atalho = "Trocar o atalho"; self._nova_pintada = "?"; self._pintar_atual()
         if not hasattr(self, "rot_captura"):
             self.rot_captura = "Trocar o atalho da captura"
-        return [("trocar_atalho", self.rot_atalho, "teclado"), ("trocar_captura", self.rot_captura, "recorte"),
-                ("atualizacao", self.rot_atual, "desfazer")]
+        # 14/11 (Claude do Gu): o modo captura é só do Windows (no Mac a barra esconde) → no Mac sem o botão dele
+        return ([("trocar_atalho", self.rot_atalho, "teclado")] + ([] if MAC else [("trocar_captura", self.rot_captura, "recorte")])
+                + [("atualizacao", self.rot_atual, "desfazer")])
 
     def clique_extra(self, zona):
         if zona == "trocar_atalho":
@@ -3325,6 +3334,10 @@ class Painel:
             im, zonas, extra = visual.painel(e)
             # 14/11 (Mac do Gu, janelinha cortada): a lista de gravadas não pode empurrar o pé pra fora da tela (MacBook = 982 pt)
             caber = self.win.winfo_screenheight() - 110
+            try:        # o Mac dá a área útil (sem a barra de menu e o Dock) no maxsize; e o que a janela recebeu de fato (_teto)
+                caber = min(caber, int(self.win.wm_maxsize()[1]) - 40, getattr(self, "_teto", 10 ** 6))
+            except Exception:
+                pass
             while im.height > caber and len(e["gravacoes"]) > 1:
                 e["gravacoes"] = e["gravacoes"][:-1]
                 im, zonas, extra = visual.painel(e)
