@@ -193,6 +193,16 @@ def baixados(ini, fim):
     return sorted(out)
 
 
+NAVEGADORES = ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "arc.exe", "google chrome", "safari", "firefox")
+IMAGENS_MAX = 20          # 16/11: o máximo de imagens coladas numa mensagem (o Claude aceita até 20 anexos por mensagem)
+MARCA_IMG = re.compile(r"⟦IMG:(.+?)⟧")
+
+
+def img(caminho):
+    """16/11: a imagem que vai COLADA no Claude (no montar vira «imagem N»)"""
+    return "⟦IMG:%s⟧" % caminho
+
+
 def itens_da_sessao(p, meta, rep):
     """[(t, linha)] do que ele copiou, desenhou, baixou e abriu — no relógio da sessão"""
     evs = []
@@ -220,7 +230,7 @@ def itens_da_sessao(p, meta, rep):
             continue
         if oq in ("imagem", "captura") and e.get("arquivo"):
             de = "print que tirei" if (oq == "captura" or app.startswith("pythonw") or app.startswith("python")) else "imagem que copiei"
-            add(t, "🖼 %s: %s" % (de, A(e["arquivo"])), ("img", e["arquivo"]))
+            add(t, "🖼 %s: %s" % (de, img(A(e["arquivo"]))), ("img", e["arquivo"]))
         elif oq == "arquivos" and e.get("arquivos"):
             for c in e["arquivos"]:
                 add(t, "📎 arquivo que copiei: %s" % c, ("arq", c))
@@ -249,19 +259,45 @@ def itens_da_sessao(p, meta, rep):
         cands = [(tp, a) for tp, a in prints_traco if g[0] - 0.5 <= tp <= g[-1] + DESENHO_JUNTA_S]
         if cands:
             tp, a = cands[-1]
-            add(g[0], "✏️ desenhei na tela%s: %s" % ((" (%d traços)" % len(g)) if len(g) > 1 else "", A(a)), ("des", a))
+            add(g[0], "✏️ desenhei na tela%s: %s" % ((" (%d traços)" % len(g)) if len(g) > 1 else "", img(A(a))), ("des", a))
     # o que terminou de baixar
     ini = meta.get("inicio_epoch") or 0
     fim = (meta.get("fim_epoch") or ini + (meta.get("duracao_s") or 0))
     for t, c in baixados(ini, fim):
         add(t, "⬇️ baixei: %s" % c, ("arq", c))
     # as páginas do Chrome: onde ele clicou/parou (a extensão, na hora); sem a extensão, o links.json se já existir (sem esperar)
+    # 16/11 12:35 (ele: «ta meio zuado esse resumo... foi link do fly xtudo pra nada»): a extensão manda «parou» até de uma aba que
+    # está ATRÁS (o mouse passou por cima da janela do Fly X-tudo enquanto ele usava o AppPessoal). Agora a página só entra se ele CLICOU
+    # nela ou se ela era a janela da FRENTE naquele segundo (o último evento «janela» antes, Chrome com o mesmo título).
+    janelas = sorted((float(e.get("t", 0)), (e.get("app") or "").lower(), e.get("titulo") or "") for e in evs if e.get("tipo") == "janela")
+
+    def na_frente(t, titulo):
+        ant = [j for j in janelas if j[0] <= t + 0.3]
+        if not ant or not titulo:
+            return False
+        _tj, app, tit = ant[-1]
+        if app != "chrome.exe" and app not in NAVEGADORES:
+            return False
+        a, b = tit.strip().lower(), titulo.strip().lower()
+        return bool(a) and (a == b or a.startswith(b) or b.startswith(a))
     links, vistos_url = [], set()
     for e in evs:
         u = (e.get("url") or "").strip()
+        if e.get("tipo") == "chrome" and e.get("motivo") != "clique" and not na_frente(float(e.get("t", 0)), e.get("titulo")):
+            continue
         if e.get("tipo") in ("chrome", "janela") and u and u not in vistos_url:
             vistos_url.add(u)
             links.append({"url": u, "titulo": e.get("titulo") or "", "t": e.get("t", 0)})
+    # 16/11: a janela onde ele clicou e que não mandou endereço (o AppPessoal e o DUBX abrem em janela de app, sem a extensão): pelo menos
+    # o nome dela, uma vez — senão o RESUMO não diz em que tela ele estava
+    titulos_com_link = {(l.get("titulo") or "").strip().lower() for l in links}
+    for e in evs:
+        if e.get("tipo") != "clique":
+            continue
+        app, tit = (e.get("app") or "").lower(), (e.get("titulo") or "").strip()
+        if app not in NAVEGADORES or not tit or tit.lower() in titulos_com_link:
+            continue
+        add(float(e.get("t", 0)), "🪟 cliquei na janela do Chrome «%s»" % tit, ("jan", tit.lower()))
     if not links:
         try:
             links = json.load(open(os.path.join(p, "links.json"), encoding="utf-8")).get("links") or []
@@ -282,54 +318,175 @@ JA_FEZ_S = 10              # 15/11 ~21h30 (ele: «se eu tivesse tirado print, de
                            # aqui, então não precisa levar mais nada... o Kakashi ele é inteligente»): print/desenho DELE cobre ±10 s
 
 
+# 16/11 12:40 (ele, depois do RESUMO das 12:35: «foi link do fly xtudo pra nada» · «o resumo tem q ser inteligente po, e não no modo
+# fodase»). O de 12:35 pegou o print no «aqui» de «gravar um resumo curto aqui» (não apontava nada) e deixou SEM imagem o que
+# importava: «passo pra cá... tá vendo? fica pulando, se teletransportando» — um defeito que MEXE, que um print parado não mostra.
+# Agora: (1) «cá / ali / lá» também apontam; (2) «tá vendo / olha só / fica pulando / voltando / piscando...» = ele está MOSTRANDO
+# algo acontecer → uma TIRA de 3 quadros do vídeo (antes · durante · depois), recortados em volta do mouse; (3) o momento vale mais
+# quando o mouse PAROU ou CLICOU ali perto (é aí que ele aponta de verdade); (4) apontando com o Claude ou a barra do Kakashi na
+# frente não conta (está falando comigo, não mostrando); (5) sem print perto, sai um quadro do vídeo naquele segundo.
+APONTA_R = re.compile(r"\b(aqui|isso|esse|essa|este|esta|ó|olha|cá|ali|lá)\b", re.I)
+DEMONSTRA = re.compile(r"\b(t[aá]|est[aá]) vendo\b|\bviu\?|\bolha s[oó]\b|\bfica(ndo)? (pulando|voltando|piscando|travando|sumindo|tremendo|"
+                       r"mudando|indo)\b|teletransport|\bn[aã]o (vai|anda|mexe|carrega|funciona)\b", re.I)
+SEQ_PASSO_S = 1.2          # a tira: quadros 1,2 s antes e depois
+SEM_JANELA = 0x08000000    # CREATE_NO_WINDOW: o ffmpeg nunca abre janela na tela dele
+
+
+def _mouse_em(evs, t):
+    pts = [(abs(float(e.get("t", 0)) - t), e["x"], e["y"]) for e in evs
+           if e.get("tipo") in ("mouse", "clique", "sob_mouse", "print") and e.get("x") is not None and e.get("y") is not None]
+    return min(pts)[1:] if pts else None
+
+
+def _frente_em(evs, t):
+    js = [e for e in evs if e.get("tipo") == "janela" and float(e.get("t", 0)) <= t + 0.3]
+    return ((js[-1].get("app") or "").lower(), js[-1].get("titulo") or "") if js else ("", "")
+
+
+def _quadro(p, t, xy, escala_tela, desloc=0.0):
+    """um quadro do tela.mp4 no segundo t, recortado em volta do mouse (círculo vermelho); None se não der"""
+    import subprocess
+    from PIL import Image, ImageDraw
+    v = os.path.join(p, "tela.mp4")
+    if not os.path.isfile(v):
+        return None
+    tmp = os.path.join(p, "_resumo", "_q_%06d.png" % int(t * 100))
+    os.makedirs(os.path.dirname(tmp), exist_ok=True)
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "%.2f" % max(0.0, t - desloc), "-i", v, "-frames:v", "1", tmp],
+                       creationflags=SEM_JANELA if sys.platform == "win32" else 0, timeout=20, check=False)
+        im = Image.open(tmp).convert("RGB")
+    except Exception:
+        return None
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+    W, H = 720, 450                      # no vídeo de 1920 = ~1440 x 900 da tela 4K: dá pra ler e ver o entorno
+    cx, cy = (xy[0] * escala_tela, xy[1] * escala_tela) if xy else (im.width / 2, im.height / 2)
+    x0 = int(min(max(0, cx - W / 2), max(0, im.width - W))); y0 = int(min(max(0, cy - H / 2), max(0, im.height - H)))
+    im = im.crop((x0, y0, x0 + W, y0 + H))
+    if xy:
+        d = ImageDraw.Draw(im); mx, my = cx - x0, cy - y0
+        d.ellipse((mx - 22, my - 22, mx + 22, my + 22), outline=(255, 30, 46), width=3)
+    return im
+
+
+def _tira(p, t, evs, escala_tela, desloc):
+    """3 quadros (antes · durante · depois) lado a lado, com o minuto em cima de cada um → caminho do jpg"""
+    from PIL import Image, ImageDraw
+    qs = []
+    for dt in (-SEQ_PASSO_S, 0.0, SEQ_PASSO_S):
+        tt = max(0.0, t + dt)
+        q = _quadro(p, tt, _mouse_em(evs, tt), escala_tela, desloc)
+        if q is not None:
+            qs.append((tt, q))
+    if len(qs) < 2:
+        return None
+    w, h = qs[0][1].size
+    tira = Image.new("RGB", (w * len(qs) + 8 * (len(qs) - 1), h + 30), (12, 12, 14))
+    d = ImageDraw.Draw(tira)
+    for k, (tt, q) in enumerate(qs):
+        x = k * (w + 8)
+        tira.paste(q, (x, 30))
+        d.text((x + 8, 8), "%s  %s" % (mmss(tt), ("antes", "durante", "depois")[k] if len(qs) == 3 else ""), fill=(255, 214, 10))
+    out = os.path.join(p, "_resumo", "%s_sequencia.jpg" % mmss(t).replace(":", ""))
+    tira.save(out, quality=88)
+    return out
+
+
 def prints_inteligentes(p, fala, dur, rep, ja, resumo_pc):
-    """15/11 ~21h25 (ele, no 1º RESUMO de verdade: «achei que ia ter uns prints automáticos inteligentes... do lugar que eu mostrei,
-    igual fica nas gravações do Kakashi, com o mouse com aquela paradinha vermelha em volta... eu não parei pra tirar print»).
-    A gravação já tira print sozinha (a cada ~3 s de fala, ao parar o mouse, ao clicar), com o recorte de perto e o círculo vermelho
-    no mouse (`_perto.jpg`). Aqui escolho os que importam: no «aqui / isso aqui / ó / olha / esse» dele, o print mais perto (de 1 s
-    antes a 2 s depois; senão ±3 s), o mesmo critério do /kakashi; sem nenhum «aqui», um a cada ~20 s de fala. Pula onde ele já
-    copiou print ou desenhou (`ja` = tempos, ±JA_FEZ_S). Máximo ~1 a cada 12 s de gravação (mínimo 4, máximo 12)."""
+    """15/11 ~21h25 (ele: «achei que ia ter uns prints automáticos inteligentes... do lugar que eu mostrei... com o mouse com aquela
+    paradinha vermelha»), refeito em 16/11 12:40 (ver o bloco acima). → [(t, linha)] com ⟦IMG:...⟧ (vira «imagem N» colada)."""
     evs = []
     for l in open(os.path.join(p, "eventos.jsonl"), encoding="utf-8", errors="replace"):
         if l.strip("\x00 \r\n\t"):
             try:
-                e = json.loads(l)
+                evs.append(json.loads(l))
             except ValueError:
                 continue
-            if e.get("tipo") == "print" and e.get("motivo") != "traco" and e.get("arquivo") and float(e.get("t", 0)) >= rep:
-                evs.append(e)
-    if not evs:
-        return []
-    alvo = []
-    for t, palavra, _ in resumo_pc.momentos_aqui(fala):
-        cand = [e for e in evs if -1.0 <= e["t"] - t <= 2.0] or [e for e in evs if abs(e["t"] - t) <= 3.0]
-        if cand:
-            alvo.append((0 if re.match(r"^(aqui|ó|olha)$", palavra, re.I) else 1, t, palavra,
-                         min(cand, key=lambda e: abs(e["t"] - t))))
-    if not alvo:                          # falou sem apontar: um print a cada ~20 s de fala
+    prints = [e for e in evs if e.get("tipo") == "print" and e.get("motivo") != "traco" and e.get("arquivo") and float(e.get("t", 0)) >= rep]
+    mon = next((e.get("monitor") for e in prints if e.get("monitor")), None) or [0, 0, 3840, 2160]
+    escala_tela = 1920.0 / max(1, (mon[2] - mon[0])) if mon[2] - mon[0] > 1920 else 1.0       # o tela.mp4 é 1920 de largura
+    # onde o mouse PAROU ou CLICOU (o gesto de apontar de verdade)
+    gestos = [float(e.get("t", 0)) for e in evs if e.get("tipo") in ("clique", "sob_mouse") or
+              (e.get("tipo") == "app_pessoal" and e.get("acao") in ("parou", "clique")) or (e.get("tipo") == "chrome" and e.get("motivo") in ("parou", "clique"))]
+    alvo = []                              # (prioridade, t, rótulo, tipo)  tipo: "seq" | "ponto"
+    for a, b, tx, *_ in fala:
+        if t_ok(a, rep) and DEMONSTRA.search(tx):
+            m = DEMONSTRA.search(tx)
+            t = a + (max(b, a + 0.5) - a) * (m.start() / max(1, len(tx)))
+            alvo.append((0, t, "mostrando: «%s»" % m.group(0).strip(), "seq"))
+        for m in APONTA_R.finditer(tx):
+            t = a + (max(b, a + 0.5) - a) * (m.start() / max(1, len(tx)))
+            if not t_ok(t, rep):
+                continue
+            perto_gesto = any(-1.5 <= g - t <= 2.5 for g in gestos)
+            forte = m.group(0).lower() in ("aqui", "ó", "olha", "cá")
+            alvo.append((1 if perto_gesto else (2 if forte else 3), t, "«%s»" % m.group(0), "ponto"))
+    if not any(x[0] <= 2 for x in alvo):    # falou sem apontar: um a cada ~20 s de fala
         ultimo = -1e9
-        for a, _b, _tx, _c in fala:
-            if a - ultimo >= PRINT_SEM_AQUI_S:
-                cand = [e for e in evs if abs(e["t"] - a) <= 3.0]
-                if cand:
-                    alvo.append((2, a, "", min(cand, key=lambda e: abs(e["t"] - a)))); ultimo = a
+        for a, _b, _tx, *_ in fala:
+            if a - ultimo >= PRINT_SEM_AQUI_S and t_ok(a, rep):
+                alvo.append((4, a, "falando", "ponto")); ultimo = a
     teto = max(4, min(12, int(float(dur or 0) / 12) + 2))
     escolhidos = []
-    for prio, t, palavra, e in sorted(alvo, key=lambda x: (x[0], x[1])):
+    for prio, t, rot, tipo in sorted(alvo, key=lambda x: (x[0], x[1])):
         if len(escolhidos) >= teto:
             break
-        if any(abs(e["t"] - x[3]["t"]) < PRINT_LONGE_S for x in escolhidos) or any(abs(e["t"] - tj) <= JA_FEZ_S for tj in ja):
+        app, _tit = _frente_em(evs, t)
+        if app in ("claude.exe", "claude", "pythonw.exe", "python.exe"):     # falando comigo / mexendo na barra: não está mostrando nada
             continue
-        escolhidos.append((prio, t, palavra, e))
+        longe = PRINT_LONGE_S if tipo == "ponto" else SEQ_PASSO_S * 2
+        if any(abs(t - x[1]) < longe for x in escolhidos) or any(abs(t - tj) <= JA_FEZ_S for tj in ja):
+            continue
+        escolhidos.append((prio, t, rot, tipo))
     out = []
     A = lambda rel: os.path.normpath(os.path.join(p, rel))      # noqa: E731
-    for prio, t, palavra, e in sorted(escolhidos, key=lambda x: x[3]["t"]):
-        perto = e.get("perto") if e.get("perto") and os.path.isfile(A(e["perto"])) else None
-        quando = ("«%s»" % palavra) if palavra else "falando"
-        if perto:
-            out.append((float(e["t"]), "📸 onde eu mostrei (%s): %s · tela inteira: %s" % (quando, A(perto), A(e["arquivo"]))))
-        else:
-            out.append((float(e["t"]), "📸 onde eu mostrei (%s): %s" % (quando, A(e["arquivo"]))))
+    for prio, t, rot, tipo in sorted(escolhidos, key=lambda x: x[1]):
+        if tipo == "seq":
+            arq = _tira(p, t, evs, escala_tela, DESLOC_TELA.get(p, 0.0))
+            if arq:
+                out.append((t, "🎞 o que eu estava mostrando acontecer (%s) — antes · durante · depois: %s" % (rot, img(arq))))
+                continue
+        cand = [e for e in prints if -1.0 <= float(e["t"]) - t <= 2.0] or [e for e in prints if abs(float(e["t"]) - t) <= 3.0]
+        if cand:
+            e = min(cand, key=lambda e: abs(float(e["t"]) - t))
+            perto = e.get("perto") if e.get("perto") and os.path.isfile(A(e["perto"])) else None
+            out.append((float(e["t"]), "📸 onde eu mostrei (%s): %s" % (rot, img(A(perto) if perto else A(e["arquivo"])))))
+            continue
+        q = _quadro(p, t, _mouse_em(evs, t), escala_tela, DESLOC_TELA.get(p, 0.0))     # sem print perto: um quadro do vídeo
+        if q is not None:
+            arq = os.path.join(p, "_resumo", "%s_quadro.jpg" % mmss(t).replace(":", ""))
+            q.save(arq, quality=88)
+            out.append((t, "📸 onde eu mostrei (%s): %s" % (rot, img(arq))))
+    return out
+
+
+def t_ok(t, rep):
+    return t >= rep
+
+
+DESLOC_TELA = {}           # pasta → quanto o tela.mp4 está deslocado do relógio da sessão (replay); o resumo_de preenche
+
+
+def elementos_app_pessoal(evs, rep):
+    """16/11: o que o AppPessoal registrou onde ele PAROU ou CLICOU (o elemento de verdade: «faixa ssd», «EP04»...) — passar por cima não
+    conta. Uma linha por elemento, no 1º momento, com quantas vezes."""
+    vistos = {}
+    for e in evs:
+        if e.get("tipo") != "app_pessoal" or e.get("acao") not in ("parou", "clique", "clicou") or float(e.get("t", 0)) < rep:
+            continue
+        k = (e.get("k") or "", e.get("id") or "")
+        if k not in vistos:
+            vistos[k] = [float(e.get("t", 0)), e.get("titulo") or "", 0, set()]
+        vistos[k][2] += 1; vistos[k][3].add(e.get("acao"))
+    out = []
+    for (tipo, ident), (t, tit, n, acoes) in vistos.items():
+        verbo = "cliquei" if acoes & {"clique", "clicou"} else "parei o mouse"
+        out.append((t, "🧩 no AppPessoal, %s em: %s «%s»%s%s" % (verbo, tipo or "elemento", ident, (" (%s)" % tit) if tit else "",
+                                                          (" — %d vezes" % n) if n > 1 else "")))
     return out
 
 
@@ -371,9 +528,21 @@ def resumo_de(p):
         log("fala de %s NÃO transcrita: %s" % (os.path.basename(p), aviso))
     if rep:
         fala = [x for x in fala if x[0] >= rep]
+    try:
+        _evs0 = [json.loads(l) for l in open(os.path.join(p, "eventos.jsonl"), encoding="utf-8", errors="replace") if l.strip("\x00 \r\n\t")]
+    except (OSError, ValueError):
+        _evs0 = []
+    telas = telas_usadas(_evs0, rep)
+    fala, trocas = corrigir_nomes(fala, _evs0)
     frs = resumo_pc.frases(fala)
     andamento(etapa="juntando")
     itens = itens_da_sessao(p, meta, rep)        # 15/11: sem esperar o links.json (as páginas vêm da extensão)
+    DESLOC_TELA[p] = rep if (rep and "tela" not in juntos) else 0.0
+    try:                                          # 16/11: o elemento do AppPessoal onde ele parou/clicou
+        _evs = [json.loads(l) for l in open(os.path.join(p, "eventos.jsonl"), encoding="utf-8", errors="replace") if l.strip("\x00 \r\n\t")]
+        itens = sorted(itens + elementos_app_pessoal(_evs, rep), key=lambda x: x[0])
+    except Exception as e:
+        log("elementos do AppPessoal: %r" % e)
     try:                                          # 15/11 ~21h25: os prints automáticos do lugar que ele mostrou
         ja = [t for t, l in itens if l.startswith(("🖼", "✏️"))]
         itens = sorted(itens + prints_inteligentes(p, fala, meta.get("duracao_s"), rep, ja, resumo_pc), key=lambda x: x[0])
@@ -406,7 +575,69 @@ def resumo_de(p):
     saida = [l for _, l in linhas]
     if aviso:
         saida.insert(0, "(A FALA NÃO FOI TRANSCRITA AQUI: %s — transcrever o fala.wav da pasta antes de agir)" % aviso)
-    return cab, saida, len(frs), len(itens)
+    return cab, saida, len(frs), len(itens), {"telas": telas, "trocas": trocas}
+
+
+AVISO_IMAGENS = ("As imagens vão anexadas nesta mensagem, na ordem: «imagem 1» = a 1ª anexada. 📸 = print de onde eu apontei (o círculo "
+                 "vermelho é o mouse); 🎞 = antes · durante · depois de algo que eu mostrei acontecendo.")
+O_QUE_FAZER = ["1. Diga em 1–2 linhas o que entendeu que eu quero (sobre o app, não sobre a gravação).",
+               "2. Resolva «aqui / isso / cá / esse» pelas imagens e pelos elementos citados no mesmo minuto.",
+               "3. Faça o que eu pedi até o fim. Se depender de escolha minha, pergunte antes, citando o minuto exato.",
+               "4. Feche com o que mudou e a prova de cada coisa (print, teste ou commit)."]
+NAO_E_TELA = ("claude.exe", "claude", "pythonw.exe", "python.exe", "explorer.exe", "openwhispr.exe", "")
+
+
+def telas_usadas(evs, rep):
+    """16/11: as janelas onde ele CLICOU (o que estava usando de verdade), sem o Claude, a barra do Kakashi e a área de trabalho"""
+    out = []
+    for e in evs:
+        if e.get("tipo") != "clique" or float(e.get("t", 0)) < rep:
+            continue
+        app, tit = (e.get("app") or "").lower(), (e.get("titulo") or "").strip()
+        if app in NAO_E_TELA or not tit:
+            continue
+        nome = "Chrome" if app in NAVEGADORES else re.sub(r"\.exe$", "", e.get("app") or "", flags=re.I)
+        r = "%s «%s»" % (nome, tit[:60])
+        if r not in out:
+            out.append(r)
+    return out
+
+
+def _uma_letra(a, b):
+    return len(a) == len(b) and sum(x != y for x, y in zip(a, b)) == 1
+
+
+def corrigir_nomes(fala, evs):
+    """16/11: o nome que a transcrição ouviu errado vira o nome da janela que estava na tela (ex.: «Figmo» → «Figma», a janela se
+    chamava Figma). Só nome de janela curta (até 3 palavras: nome de app), só troca de UMA letra no mesmo tamanho, mesma 1ª letra e 5+ letras
+    — assim «projeto» nunca vira «Projetos». → (fala corrigida, [(ouvido, certo)])"""
+    nomes = set()
+    for e in evs:
+        if e.get("tipo") in ("janela", "clique", "chrome"):
+            tit = (e.get("titulo") or "").strip()
+            if 0 < len(tit.split()) <= 3:
+                for w in re.findall(r"[A-Za-zÀ-ÿ]{5,}", tit):
+                    nomes.add(w)
+    if not nomes:
+        return fala, []
+    trocas = []
+
+    def troca(m):
+        w = m.group(0)
+        if any(w.lower() == n.lower() for n in nomes):
+            return w
+        for n in nomes:
+            if w[0].lower() == n[0].lower() and _uma_letra(w.lower(), n.lower()):
+                if (w, n) not in trocas:
+                    trocas.append((w, n))
+                return n
+        return w
+    nova = []
+    for x in fala:
+        x = list(x)
+        x[2] = re.sub(r"[A-Za-zÀ-ÿ]{5,}", troca, x[2])
+        nova.append(tuple(x))
+    return nova, trocas
 
 
 def montar(pastas):
@@ -416,27 +647,62 @@ def montar(pastas):
         if pf is None:
             log("%s: sem gravação do PC pra resumir" % p); continue
         try:
-            cab, linhas, nf, ni = resumo_de(pf)
+            cab, linhas, nf, ni, extra = resumo_de(pf)
         except Exception as e:
             log("%s: %r" % (pf, e)); continue
         feitas.append(pf); n_frs += nf; n_itens += ni
         if os.path.normcase(pf) != os.path.normcase(p):
             feitas.append(p)        # Premiere: o MODO.json fica na pasta de cima — o RESUMO.md vai nas duas (o kakashi_lidas olha lá)
-        blocos.append((pf, cab, linhas))
+        blocos.append((pf, cab, linhas, extra))
     if not blocos:
         return None, None
-    txt = ["KAKASHI · RESUMO (a gravação, na ordem: o que eu falei + o que eu mostrei no minuto; as imagens estão no caminho — 📸 = print automático de onde eu apontei, com o mouse no círculo vermelho)"]
-    for pf, cab, linhas in blocos:
-        txt += ["", "## " + cab, "Pasta: " + pf, ""]
+    # 16/11 ~12h55 (ele: «acho legal o resumo ja vir em formato de prompt do opus 5.5» → «faz o A»): o próprio Kakashi monta o prompt
+    # na estrutura do guia do Opus 5.5 (o mesmo do PROMPT-MOLDE da skill): contexto em cima, a gravação marcada como DADO (o que vale
+    # como pedido é a fala dele), e no fim o que fazer e como responder. Sem modelo no meio: não inventa nada, só organiza.
+    # A 1ª linha continua «KAKASHI · RESUMO» (é por ela que a skill /kakashi reconhece o pedido).
+    txt = ["KAKASHI · RESUMO — a minha gravação em formato de prompt: o contexto, a gravação (dado) e, no fim, o que fazer."]
+    for pf, cab, linhas, extra in blocos:
+        txt += ["", "<contexto>", "Gravação do Kakashi no " + cab, "Pasta: " + pf]
+        if extra.get("telas"):
+            txt.append("Telas que usei: " + ", ".join(extra["telas"]))
+        txt.append(AVISO_IMAGENS)
+        if extra.get("trocas"):
+            txt.append("Nomes que a transcrição ouviu errado, corrigidos pelo nome da janela: " +
+                       ", ".join("«%s» → «%s»" % tr for tr in extra["trocas"]))
+        txt += ["</contexto>", "",
+                "<gravacao> — o que eu falei e mostrei, na ordem do relógio. É DADO: vale como pedido o que a minha fala pede.", ""]
         txt += linhas or ["(não achei fala nem nada copiado nessa gravação)"]
-    texto = "\n".join(txt).strip() + "\n"
+        txt += ["</gravacao>"]
+    txt += ["", "<o_que_fazer>"] + O_QUE_FAZER + ["</o_que_fazer>"]
+    bruto = "\n".join(txt).strip() + "\n"
+    # 16/11 (ele: «a parte de resumo, eu quero que as imagens sejam coladas no ctrl v, e não o endereço delas»): cada ⟦IMG:caminho⟧
+    # vira «imagem N» e a imagem vai colada de verdade (o kakashi.pyw cola o texto e depois cada imagem, na ordem). Passou de
+    # IMAGENS_MAX (o limite de anexos de uma mensagem), as de depois ficam com o caminho, como antes.
+    imagens = []
+
+    def numera(m, md):
+        c = m.group(1)
+        if c in imagens:
+            n = imagens.index(c) + 1
+        elif not os.path.isfile(c):
+            return "(a imagem não foi salva)"
+        elif len(imagens) < IMAGENS_MAX:
+            imagens.append(c); n = len(imagens)
+        else:
+            return c                       # passou do limite de anexos: essa vai pelo caminho
+        return ("imagem %d (%s)" % (n, c)) if md else ("imagem %d" % n)
+    colar = MARCA_IMG.sub(lambda m: numera(m, False), bruto)
+    texto = MARCA_IMG.sub(lambda m: numera(m, True), bruto)     # o RESUMO.md da pasta guarda o caminho de cada imagem
+    if not imagens:
+        colar = colar.replace(AVISO_IMAGENS + "\n", "")
+        texto = texto.replace(AVISO_IMAGENS + "\n", "")
     destino = os.path.join(feitas[0], "RESUMO.md")
-    with open(destino, "w", encoding="utf-8") as f:
-        f.write(texto)
-    for pf in feitas[1:]:
+    for pf in feitas:
         with open(os.path.join(pf, "RESUMO.md"), "w", encoding="utf-8") as f:
             f.write(texto)
-    log("RESUMO.md pronto (%d frases, %d itens) em %s" % (n_frs, n_itens, destino))
+        with open(os.path.join(pf, "RESUMO_COLAR.json"), "w", encoding="utf-8") as f:
+            json.dump({"texto": colar, "imagens": imagens, "com_caminho": texto}, f, ensure_ascii=False, indent=1)
+    log("RESUMO.md pronto (%d frases, %d itens, %d imagens pra colar) em %s" % (n_frs, n_itens, len(imagens), destino))
     return destino, texto
 
 

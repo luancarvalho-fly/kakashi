@@ -195,15 +195,21 @@ def _copiar(texto):
         _u32.CloseClipboard()
 
 
+def _esperar_soltar_atalho():
+    """espera ele soltar o Ctrl/Shift/Alt/Page Down do atalho (até 3 s), senão o Ctrl+V sai como Ctrl+Shift+V. Um lugar só: o pacote
+    do time troca a lista de teclas pelo atalho que a pessoa escolheu (montar_kakashi_windows.py)"""
+    fim = time.time() + 3
+    while time.time() < fim and any(_u32.GetAsyncKeyState(vk) & 0x8000 for vk in atalho.teclas_soltar()):
+        time.sleep(0.03)
+
+
 def colar_kakashi(colar=True, texto=None):
     """Copia "/kakashi" e (se colar) aperta Ctrl+V na janela da frente. Espera ele soltar o Ctrl/Shift/Page Down do atalho,
     senão o Ctrl+V sai como Ctrl+Shift+V. No Premiere só copia: lá Ctrl+V cola clipe na timeline.
     3.0 (12/11): texto = "/kakashi rápido" ou "/kakashi profundo" (o que ele escolheu na barra)."""
     texto = texto or TEXTO_COLAR
     try:
-        fim = time.time() + 3
-        while time.time() < fim and any(_u32.GetAsyncKeyState(vk) & 0x8000 for vk in atalho.teclas_soltar()):
-            time.sleep(0.03)
+        _esperar_soltar_atalho()
         if not _copiar(texto):
             log("colar: área de transferência ocupada"); return
         if colar and "premiere" not in janela_frente()["app"].lower():
@@ -213,6 +219,34 @@ def colar_kakashi(colar=True, texto=None):
         log("colar: %s %s" % (texto, "copiado e colado" if colar else "copiado"))
     except Exception as e:
         log("colar: %s" % e)
+
+def colar_com_imagens(texto, imagens, ainda_no_claude):
+    """16/11 (ele: «a parte de resumo, eu quero que as imagens sejam coladas no ctrl v, e não o endereço delas»): Ctrl+V do texto e
+    depois de cada imagem (a imagem de verdade, não o caminho), na ordem. Para se ele sair do Claude no meio. → quantas colou.
+    Função do módulo (como o colar_kakashi) pros testes trocarem por uma de mentira: aqui é teclado e área de transferência DE VERDADE."""
+    import captura
+    from PIL import Image
+    _esperar_soltar_atalho()
+    if not captura.copiar_texto(texto):
+        log("resumo: área de transferência ocupada"); return 0
+    captura.colar(0.1)
+    time.sleep(0.6)                                     # o texto longo vira anexo «colado»: dá tempo do app engolir
+    n = 0
+    for c in imagens:
+        if not ainda_no_claude():
+            log("resumo: saiu do Claude no meio — colei %d de %d imagens" % (n, len(imagens))); break
+        try:
+            with Image.open(c) as im:
+                ok = captura.copiar_imagem(im.convert("RGB"))
+        except Exception as ex:
+            log("resumo: imagem %s não abriu (%r)" % (c, ex)); continue
+        if not ok:
+            log("resumo: área de transferência ocupada na imagem %s" % c); continue
+        captura.colar(0.1)
+        n += 1
+        time.sleep(0.45)
+    return n
+
 
 if MAC:
     janela_frente = mac.janela_frente
@@ -1912,12 +1946,43 @@ class Kakashi:
             self._aplicar_modo(e, "rapido", "resumo não saiu")
             return
         texto = open(arq, encoding="utf-8").read()
+        # 16/11 (ele: «a parte de resumo, eu quero que as imagens sejam coladas no ctrl v, e não o endereço delas»): o modo_resumo.py
+        # deixa o RESUMO_COLAR.json (o texto com «imagem N» + a lista das imagens). Cola o texto e depois cada imagem, uma por Ctrl+V,
+        # na ordem. Fora do Claude na hora: espera ele ir pro Claude (até ESPERA_CLAUDE_S, a barra avisa) e cola tudo lá — a área de
+        # transferência não segura texto + várias imagens de uma vez. Não foi pro Claude a tempo (ou no Mac): copia o texto COM os
+        # caminhos, como antes.
+        pacote = None
+        try:
+            pacote = json.load(open(os.path.join(os.path.dirname(arq), "RESUMO_COLAR.json"), encoding="utf-8"))
+        except (OSError, ValueError):
+            pass
+        if not MAC and pacote and pacote.get("imagens"):
+            no_claude = self._frente_e_claude(janela_frente())
+            if not no_claude:
+                self._res = {"t0": t0, "fim": "RESUMO PRONTO · VA PRO CLAUDE QUE EU COLO"}
+                fim_espera = time.time() + self.ESPERA_CLAUDE_S
+                while time.time() < fim_espera and not no_claude:
+                    time.sleep(0.5)
+                    no_claude = self._frente_e_claude(janela_frente())
+                time.sleep(0.4 if no_claude else 0)          # deixa a janela do Claude terminar de vir pra frente
+            if no_claude:
+                n = colar_com_imagens(pacote["texto"], pacote["imagens"], lambda: self._frente_e_claude(janela_frente()))
+                self._res = {"t0": t0, "ate": time.time() + 5, "fim": "RESUMO COLADO NO CLAUDE · %d %s" % (n, "IMAGEM" if n == 1 else "IMAGENS")}
+                log("resumo: colado com %d de %d imagens em %.0f s (%s)" % (n, len(pacote["imagens"]), time.time() - t0, arq))
+                return
+            texto = pacote.get("com_caminho") or texto
+            log("resumo: o Claude não veio pra frente em %d s — só copiei o texto (com os caminhos das imagens)" % self.ESPERA_CLAUDE_S)
+        elif pacote:
+            texto = pacote.get("com_caminho") or pacote.get("texto") or texto
         no_claude = bool(e.get("colar")) and self._frente_e_claude(janela_frente())
         colar_kakashi(no_claude, texto)
         seg = time.time() - t0
         self._res = {"t0": t0, "ate": time.time() + (5 if no_claude else 12),
                      "fim": "RESUMO COLADO NO CLAUDE" if no_claude else "RESUMO COPIADO · CTRL+V NO CLAUDE"}
         log("resumo: %s em %.0f s (%s)" % ("colado" if no_claude else "copiado", seg, arq))
+
+    ESPERA_CLAUDE_S = 600       # 16/11: quanto o RESUMO pronto espera ele ir pro Claude pra colar com as imagens
+
 
     def descartar_escolha(self):
         """o X da escolha: a correção vai pro _descartadas (nunca apaga); espera o Kakashi/painel terminar de juntar os arquivos"""
