@@ -1852,9 +1852,27 @@ class Kakashi:
             return ""
         if r.get("fim"):
             return r["fim"]
-        s = int(time.time() - r["t0"])
-        return "RESUMO · TRANSCREVENDO %d:%02d" % (s // 60, s % 60)     # sem acento: a fonte 8 bits é ASCII + ·
+        # 15/11 ~21h (ele: «coloca um... compilando... pra pessoa ver, ela não ficar no escuro... será que já tá pronto?... um
+        # timerzinho de... pronto em X tempo... Compilando, 60%»): a etapa e a previsão vêm do modo_resumo.py (--andamento)
+        try:
+            d = json.load(open(self.RESUMO_ANDAMENTO, encoding="utf-8"))
+        except (OSError, ValueError):
+            d = {}
+        agora, etapa = time.time(), d.get("etapa")
 
+        def tempo(seg):
+            seg = max(1, int(round(seg)))
+            return "%d S" % seg if seg < 60 else "%d:%02d" % (seg // 60, seg % 60)
+        if etapa == "transcrevendo" and d.get("previsto_fala_s") is not None and d.get("ini_fala"):
+            total = (float(d["ini_fala"]) - r["t0"]) + float(d["previsto_fala_s"]) + 1.0      # +1 s: juntar e colar
+            pct = int(min(95, max(5, (agora - r["t0"]) / max(total, 1.0) * 100)))
+            falta = r["t0"] + total - agora
+            return "COMPILANDO %d%% · %s" % (pct, ("PRONTO EM " + tempo(falta)) if falta >= 1 else "QUASE")
+        if etapa in ("juntando", "pronto"):
+            return "COMPILANDO 98% · PRONTO EM 1 S"
+        return "COMPILANDO %d%% · FECHANDO A GRAVACAO" % min(4, 1 + int(agora - r["t0"]))   # sem acento: a fonte 8 bits é ASCII
+
+    RESUMO_ANDAMENTO = os.path.join(AQUI, "_resumo_andamento.json")     # 15/11: a etapa/previsão que o modo_resumo.py grava
     NAVEGADORES = ("chrome.exe", "msedge.exe", "firefox.exe", "brave.exe", "opera.exe", "arc.exe", "google chrome", "safari", "firefox")
 
     @classmethod
@@ -1874,9 +1892,14 @@ class Kakashi:
                     return a
             return None
         t0 = time.time()
+        try:
+            os.remove(self.RESUMO_ANDAMENTO)
+        except OSError:
+            pass
         self._res = {"t0": t0}
         try:
-            r = subprocess.run([sys.executable, os.path.join(AQUI, "modo_resumo.py")] + list(e["pastas"]), cwd=AQUI,
+            r = subprocess.run([sys.executable, os.path.join(AQUI, "modo_resumo.py")] + list(e["pastas"]) +
+                               ["--andamento", self.RESUMO_ANDAMENTO], cwd=AQUI,
                                creationflags=SEM_JANELA, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1800)
             cod = r.returncode
         except Exception as ex:
@@ -3578,7 +3601,7 @@ class Painel:
             e = {"quem": "janelinha", "pastas": [g["pasta"]], "colar": False}
             threading.Thread(target=self.k._aplicar_modo, args=(e, "resumo", "janelinha"), daemon=True).start()
             log("janelinha: %s → RESUMO" % os.path.basename(g["pasta"]))
-            self.avisar("Resumo: transcrevendo (~0,4 × a gravação); copio quando ficar pronto", 8)
+            self.avisar("Resumo: compilando (a barra mostra quanto falta); copio quando ficar pronto", 8)
             self.montar_lista(forcar=True)
             return
         d = {"modo": modo, "escolhido_em": datetime.datetime.now().replace(microsecond=0).isoformat(), "quem": "janelinha",

@@ -23,8 +23,8 @@ Pasta do Kakashi: `%LOCALAPPDATA%\Programs\Kakashi-Fly\` (abaixo, "a pasta"). Py
 ## MODO RESUMO (15/11) — o 3º modo: chega colado, sem /kakashi
 O Luan (15/11): «quando termina, já cola tudo pro Claude... print com links com a minha transcrição... de uma maneira inteligente...
 e rápida... mais rápido que uma leitura do Kakashi rápido».
-- Marcado RESUMO (na barra gravando, na escolha ou na janelinha), o PRÓPRIO Kakashi roda `modo_resumo.py` (a fala pelo motor do
-  `config.json`, no processador) e cola no chat uma mensagem que começa com **«KAKASHI · RESUMO»**: a fala por minuto + no minuto o
+- Marcado RESUMO (na barra gravando, na escolha ou na janelinha), o PRÓPRIO Kakashi roda `modo_resumo.py` (a fala pelo Whisper do ditado
+  na porta 8178 se estiver no ar — segundos; senão pelo motor do `config.json`; a barra mostra «COMPILANDO 60% · PRONTO EM X») e cola no chat uma mensagem que começa com **«KAKASHI · RESUMO»**: a fala por minuto + no minuto o
   print copiado, o desenho na tela, link/texto/arquivo copiado, o que baixou e as páginas abertas. Ditado (OpenWhispr) fica de fora.
 - Recebeu isso no chat = **é o pedido da pessoa: não roda esta skill nem LEITURA/PROMPT/sabotador**. Abrir as imagens pelos caminhos
   (todas, em paralelo) e fazer o que a fala pede. O `RESUMO.md` na pasta já conta como lida no `kakashi_lidas.py`.

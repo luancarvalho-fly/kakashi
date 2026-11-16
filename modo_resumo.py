@@ -6,16 +6,22 @@ termina, já cola tudo pro Claude... print com links com a minha transcrição..
 uma leitura do Kakashi rápido» · «tudo que foi print que eu tirei, desenhei, copiei... mas não cheguei a colar... ou link que eu mostrei».
 
 O que faz: lê a gravação que acabou de concluir (PC, ou o _olho de uma do Premiere) e monta UM texto, na ordem do relógio:
-- a fala dele (Tandera, no PROCESSADOR — a placa fica pro Premiere; a mesma transcrição que o /kakashi usaria, guardada em
-  fala_transcricao.json, então um PROFUNDO depois não transcreve de novo);
+- a fala dele: 15/11 ~21h (ele: «isso é muito demorado... algum fluxo que demore 10 segundos... não pode deixar mais rápido, mas ficar
+  burro») pelo Whisper do DITADO (whisper-server 8178 do OpenWhispr: o MESMO large-v3-turbo, já carregado — 3:46 em 4,7 s × 97 s no
+  processador, 97% das palavras iguais) com as regras do Tandera (rapido=True). Com o Premiere aberto a placa é dele: vai pelo
+  processador, a menos que config.json "resumo_placa_com_premiere": true. 8178 fora do ar = o processador de antes (fala_da_sessao).
+  A rápida fica em fala_resumo.json (o PROFUNDO continua transcrevendo do jeito dele);
 - no minuto em que aconteceu: o print que ele copiou (Page Down / Win+Shift+S / imagem copiada), o desenho que fez na tela,
-  o link e o texto que copiou, os arquivos que copiou, o que terminou de baixar no Downloads e as páginas que abriu no Chrome.
+  o link e o texto que copiou, os arquivos que copiou, o que terminou de baixar no Downloads e as páginas do Chrome em que ele
+  clicou/parou (a extensão manda na hora — 15/11: o histórico do Chrome esperava 12 s e trazia visita que não era dele, ex. buscas
+  no Gmail no meio de uma correção do Fly X-tudo; sem a extensão, o links.json se já existir, sem esperar).
 Fica de fora: o ditado do OpenWhispr (já foi colado e a voz dele já está na fala) e o que o próprio Kakashi copiou («/kakashi»).
 Sem modelo nenhum resumindo por cima: quem resume é o Claude que recebe (mais rápido, sem placa, e nenhuma fala dele se perde).
 As imagens vão pelo CAMINHO no texto (o Claude Code abre o arquivo); nada sobe pra internet.
 
 Saída: RESUMO.md na pasta da gravação (a 1ª) — é o texto que o Kakashi cola.
-  pythonw modo_resumo.py <pasta> [<pasta> ...]      (código 0 = RESUMO.md pronto; 2 = nenhuma pasta com fala)
+  pythonw modo_resumo.py <pasta> [<pasta> ...] [--andamento <arquivo.json>]   (código 0 = RESUMO.md pronto; 2 = nenhuma pasta)
+  --andamento: a barra do Kakashi lê dali a etapa e a previsão («COMPILANDO 60% · PRONTO EM 3 S»).
 """
 import datetime, json, os, re, sys, time
 
@@ -27,6 +33,91 @@ ESPERA_LINKS_S = 60        # o concluir grava "links" ~12 s depois (o histórico
 GRUDA_S = 40               # frases seguidas viram um parágrafo até 40 s (ou até aparecer um print/link no meio)
 DESENHO_JUNTA_S = 4        # traços em sequência (4 s) = um desenho só: fica o print do último (o desenho inteiro)
 TEXTO_MAX = 700            # texto copiado comprido: o começo no resumo, o inteiro no arquivo
+DITADO = "http://127.0.0.1:8178"   # o whisper-server do OpenWhispr (o ditado): large-v3-turbo já carregado
+# previsão do tempo da fala (medido 15/11 em 3:46: 4,7 s no 8178, 96 s no processador) — só pra barra dizer «pronto em X»
+TAXA = {"ditado": (0.02, 0.8), "processador": (0.43, 3.0)}
+ANDAMENTO = None           # o arquivo que a barra lê (--andamento)
+
+
+def andamento(**k):
+    """grava a etapa e a previsão pra barra do Kakashi (nunca derruba o resumo)"""
+    if not ANDAMENTO:
+        return
+    try:
+        try:
+            d = json.load(open(ANDAMENTO, encoding="utf-8"))
+        except (OSError, ValueError):
+            d = {}
+        d.update(k, agora=time.time())
+        tmp = ANDAMENTO + ".tmp"
+        json.dump(d, open(tmp, "w", encoding="utf-8"), ensure_ascii=False)
+        os.replace(tmp, ANDAMENTO)
+    except Exception:
+        pass
+
+
+def cfg():
+    try:
+        return json.load(open(os.path.join(AQUI, "config.json"), encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def _tandera(resumo_pc):
+    """o pacote do Tandera (no PC dele: resumo_pc.TANDERA; no pacote do time: resumo_pc.pasta_tandera())"""
+    f = getattr(resumo_pc, "pasta_tandera", None)
+    pasta = f() if callable(f) else getattr(resumo_pc, "TANDERA", None)
+    if not pasta:
+        return None
+    if pasta not in sys.path:
+        sys.path.insert(0, pasta)
+    import tandera
+    return tandera
+
+
+def ditado_no_ar():
+    import urllib.request
+    try:
+        urllib.request.urlopen(DITADO + "/", timeout=1.5).read(64)
+        return True
+    except Exception:
+        return False
+
+
+def como_transcrever(resumo_pc):
+    """«ditado» (8178, rápido) ou «processador» (o de sempre). Premiere aberto = a placa é dele (regra 9), salvo o config."""
+    if not ditado_no_ar():
+        return "processador", "o ditado (8178) está fora do ar"
+    try:
+        tandera = _tandera(resumo_pc)
+        from tandera import base
+        if base.premiere_aberto() and not cfg().get("resumo_placa_com_premiere"):
+            return "processador", "Premiere aberto (a placa é dele)"
+    except Exception as e:
+        return "processador", "Tandera: %r" % e
+    return "ditado", ""
+
+
+def fala_rapida(p, desloc, resumo_pc):
+    """a fala pelo Whisper do ditado, com as regras do Tandera; cache em fala_resumo.json (refaz se o fala.wav mudou)"""
+    wav = os.path.join(p, "fala.wav")
+    if not os.path.isfile(wav):
+        return []
+    cache = os.path.join(p, "fala_resumo.json")
+    marca = [os.path.getsize(wav), int(os.path.getmtime(wav))]
+    try:
+        c = json.load(open(cache, encoding="utf-8"))
+        if c.get("marca") != marca:
+            raise ValueError
+        segs = c["segmentos"]
+    except (OSError, ValueError, KeyError):
+        tandera = _tandera(resumo_pc)
+        r = tandera.transcrever(wav, idioma="pt", rapido=True, dispositivo="cpu")   # 8178 caiu no meio = o Whisper do Tandera NO PROCESSADOR
+        inventadas = getattr(resumo_pc, "INVENTADAS", r"$^")
+        segs = [[s["ini"], s["fim"], s["txt"]] for s in r["segmentos"] if not re.fullmatch(inventadas, s["txt"].strip())]
+        json.dump({"marca": marca, "via": r.get("via") or "?", "segmentos": segs}, open(cache, "w", encoding="utf-8"),
+                  ensure_ascii=False, indent=0)
+    return [(a + desloc, b + desloc, tx, False) for a, b, tx in segs]
 
 
 def log(msg):
@@ -164,23 +255,31 @@ def itens_da_sessao(p, meta, rep):
     fim = (meta.get("fim_epoch") or ini + (meta.get("duracao_s") or 0))
     for t, c in baixados(ini, fim):
         add(t, "⬇️ baixei: %s" % c, ("arq", c))
-    # as páginas que ele abriu no Chrome (links.json do concluir), sem repetir o link copiado
-    try:
-        links = json.load(open(os.path.join(p, "links.json"), encoding="utf-8")).get("links") or []
-    except (OSError, ValueError):
-        links = []
+    # as páginas do Chrome: onde ele clicou/parou (a extensão, na hora); sem a extensão, o links.json se já existir (sem esperar)
+    links, vistos_url = [], set()
+    for e in evs:
+        u = (e.get("url") or "").strip()
+        if e.get("tipo") in ("chrome", "janela") and u and u not in vistos_url:
+            vistos_url.add(u)
+            links.append({"url": u, "titulo": e.get("titulo") or "", "t": e.get("t", 0)})
+    if not links:
+        try:
+            links = json.load(open(os.path.join(p, "links.json"), encoding="utf-8")).get("links") or []
+        except (OSError, ValueError):
+            links = []
     for l in links:
         u = (l.get("url") or "").strip()
         if not u or u.startswith(("chrome://", "about:", "chrome-extension://", "edge://")):
             continue
         tit = re.sub(r"\s+", " ", (l.get("titulo") or "")).strip()[:90]
-        add(float(l.get("t", 0)), "🌐 abri: %s%s" % ((tit + " — ") if tit else "", u), ("url", u))
+        add(float(l.get("t", 0)), "🌐 no Chrome: %s%s" % ((tit + " — ") if tit else "", u), ("url", u))
     return sorted(itens, key=lambda x: x[0])
 
 
 def resumo_de(p):
     """(cabeçalho, [(t, linha)], segundos) de uma gravação"""
     import resumo_pc
+    andamento(etapa="fechando a gravação")
     meta = esperar(p, "duracao_s", ESPERA_FALA_S)
     if meta is None:
         raise RuntimeError("descartada")
@@ -191,9 +290,23 @@ def resumo_de(p):
     desloc = rep if (rep and "fala" not in juntos) else 0
     t0 = time.time()
     aviso = ""
+    via, porque = como_transcrever(resumo_pc)
+    a, b = TAXA[via]
+    andamento(etapa="transcrevendo", via=via, ini_fala=t0, previsto_fala_s=round(a * float(meta.get("duracao_s") or 0) + b, 1))
     try:
-        fala = resumo_pc.fala_da_sessao(p, desloc)
-        log("fala de %s transcrita em %.0f s (%d trechos)" % (os.path.basename(p), time.time() - t0, len(fala)))
+        fala = None
+        if via == "ditado":
+            try:
+                fala = fala_rapida(p, desloc, resumo_pc)
+            except Exception as e:
+                porque = "o ditado falhou (%r)" % e
+                andamento(etapa="transcrevendo", via="processador", ini_fala=time.time(),
+                          previsto_fala_s=round(TAXA["processador"][0] * float(meta.get("duracao_s") or 0) + TAXA["processador"][1], 1))
+        if fala is None:
+            fala = resumo_pc.fala_da_sessao(p, desloc)
+            via = "processador"
+        log("fala de %s transcrita em %.1f s pelo %s%s (%d trechos)" % (os.path.basename(p), time.time() - t0, via,
+                                                                    (" — " + porque) if porque and via != "ditado" else "", len(fala)))
     except (Exception, SystemExit) as e:
         # ex.: no pacote do time com "transcricao": "ardi" quem transcreve é o Claude — o resumo sai mesmo assim, com os prints e
         # links, e o aviso diz que a fala falta (o Claude transcreve pela pasta)
@@ -202,8 +315,8 @@ def resumo_de(p):
     if rep:
         fala = [x for x in fala if x[0] >= rep]
     frs = resumo_pc.frases(fala)
-    meta = esperar(p, "links", ESPERA_LINKS_S) or meta     # o concluir grava os links do Chrome por último
-    itens = itens_da_sessao(p, meta, rep)
+    andamento(etapa="juntando")
+    itens = itens_da_sessao(p, meta, rep)        # 15/11: sem esperar o links.json (as páginas vêm da extensão)
     # a linha do tempo: frases seguidas viram um parágrafo; um item no meio abre outro
     linhas, par, par_t = [], [], None
     fila = sorted([(t, 0, f) for t, f in frs] + [(t, 1, l) for t, l in itens], key=lambda x: (x[0], x[1]))
@@ -266,10 +379,17 @@ def montar(pastas):
 
 
 def main():
-    pastas = [a for a in sys.argv[1:] if not a.startswith("--")]
+    global ANDAMENTO
+    args = sys.argv[1:]
+    if "--andamento" in args:
+        i = args.index("--andamento")
+        ANDAMENTO = args[i + 1] if i + 1 < len(args) else None
+        del args[i:i + 2]
+    pastas = [a for a in args if not a.startswith("--")]
     if not pastas:
         sys.exit("uso: modo_resumo.py <pasta> [<pasta> ...]")
     destino, _ = montar(pastas)
+    andamento(etapa="pronto" if destino else "nao saiu")
     if destino is None:
         sys.exit(2)
     print(destino)
