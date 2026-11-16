@@ -3131,7 +3131,8 @@ class Tela:
         """o que a barra mostra agora, no formato do visual.barra"""
         d = self.desenho
         z = self.hover
-        dica = next((dc for _, _, zz, dc in self._dicas if zz == z), None) if (z is not None and self.quem) else None
+        # 16/11: a escolha do fim virou só ícone (raio, lupa, resumo) → a dica do mouse diz qual é qual também nela
+        dica = next((dc for _, _, zz, dc in self._dicas if zz == z), None) if (z is not None and (self.quem or self.escolha)) else None
         res = "" if (self.quem or self.escolha) else self._resumo_txt()      # 15/11: o RESUMO andando (a escolha vem antes)
         modo = "grav" if self.quem else ("captura" if self.captura is not None else ("resumo" if res else "escolha"))
         e = {"modo": modo, "hover": z, "dica": dica, "desenho": d is not None, "n": self.captura.n() if self.captura is not None else 0,

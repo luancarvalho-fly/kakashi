@@ -15,7 +15,7 @@ from PIL import Image, ImageDraw, ImageEnhance
 
 import pixel
 
-OLHO_PX = 34                      # o Sharingan da barra (em px a 1×; a barra tem 40)
+OLHO_PX = 26                      # o Sharingan da barra (em px a 1×; a barra tem 32 desde 16/11 — era 34 na de 40)
 ICONES = None                     # a pasta dos ícones do painel (titulo.png); o kakashi.pyw diz qual
 COR = {"fundo": "#0b0b0e", "janela": "#0b0b0e", "linha": "#121217", "texto": "#FFFFFF", "texto2": "#8E8E96", "vermelho": "#FF1E2E",
        "amarelo": "#FFE600", "verde": "#39D353", "preto": "#000000", "risco": "#2a2a33"}
@@ -177,33 +177,45 @@ def _cor_hex(nome):
 # ------------------------------------------------------------------ a BARRA
 def barra(e, F=1.0):
     """mesmo contrato do visual.barra: e = {"modo": "grav"|"escolha"|"captura", "tempo", "quem", "pausado", "mudo", "pedacos",
-    "ferr", "cor", "hover", "fila", "flash", "dica", "desenho", "n"} → (imagem RGBA, zonas [(x0, x1, zona, dica)], x do olho, px do olho)"""
+    "ferr", "cor", "hover", "fila", "flash", "dica", "desenho", "n"} → (imagem RGBA, zonas [(x0, x1, zona, dica)], x do olho, px do olho)
+
+    16/11 11:20 (ele, gravando no PC: «essa barra do Kakashi aqui tá muito grande... diminuir um pouquinho pra ficar mais ou menos
+    desse tamanho» + print de 690 x 32 · «esse espaço vazião aqui... Tá muito vazio» · «no rápido profundo resumo pode ser só o... o raio,
+    a lupa e o íconezinho do resumo» · «A concluir pode ser só o...»): era 1262 x 40 → ~700 x 32. Altura 40 → 32; o letreiro de 19 letras
+    (o «vazião», feito pra caber a dica do mouse) → 10 letras, com as dicas encurtadas pra caber; RÁPIDO/PROFUNDO/RESUMO e CONCLUIR
+    viraram só ícone (raio, lupa, prancheta, ✓); botões, pedaços e cores mais estreitos. A fonte e os ícones 8 bits seguem do mesmo
+    tamanho (o bloco de 2 px), só o que sobrava em volta saiu."""
     E = escala(F)
-    BH = int(40 * F)
-    CEL = int(30 * F)
-    M = max(4, int(5 * F))                 # respiro em cima/embaixo dos botões
+    BH = int(32 * F)
+    CEL = int(26 * F)
+    M = max(3, int(3 * F))                 # respiro em cima/embaixo dos botões
+    RB = max(2, int(2 * F))                # o relevo dos botões (era 3: no botão menor o ícone não cabia dentro)
     hv = e.get("hover")
     itens = []                             # (largura, função(t, x0, x1), zona, dica)
     add = lambda w, fn=None, z=None, dc=None: itens.append((int(w), fn, z, dc))     # noqa: E731
 
     def risco(t, a, b):
         cx = (a + b) // 2
-        t.ret(cx - 1, M, cx + 1, BH - M, COR["risco"])
+        t.ret(cx - 1, M + 2, cx + 1, BH - M - 2, COR["risco"])
+
+    def divisor(t, a, b):                  # 16/11: entre os dois grupos (escolha da leitura | controles da gravação)
+        cx = (a + b) // 2
+        t.ret(cx - 1, M - 1, cx + 1, BH - M + 1, "#4a4a56")
 
     def bt_ico(nome, cor, est="neutro", ativo=False, zona=None):
         def fn(t, a, b):
-            t.botao(a + 2, M, b - 2, BH - M, est, hover=(zona is not None and hv == zona))
+            t.botao(a + 1, M, b - 1, BH - M, est, hover=(zona is not None and hv == zona), b=RB)
             if ativo:
-                t.borda(a + 2, M, b - 2, BH - M, COR["amarelo"], max(2, int(2 * F)))
+                t.borda(a + 1, M, b - 1, BH - M, COR["amarelo"], max(2, int(2 * F)))
             t.ico(nome, (a + b) / 2, BH / 2, cor, E)
         return fn
 
     def w_rotulo(txt, com_icone=False):
-        return largura_texto(txt, E) + int(24 * F) + ((9 + 2) * E if com_icone else 0)
+        return largura_texto(txt, E) + int(20 * F) + ((9 + 2) * E if com_icone else 0)
 
     def bt_txt(txt, est, zona, ico=None, cor_ico=None):
         def fn(t, a, b):
-            cor = t.botao(a + 2, M, b - 2, BH - M, est, hover=hv == zona)
+            cor = t.botao(a + 1, M, b - 1, BH - M, est, hover=hv == zona, b=RB)
             wt = largura_texto(txt, E)
             if ico:
                 wi = (9 + 1) * E
@@ -214,118 +226,126 @@ def barra(e, F=1.0):
                 t.texto((a + b) / 2, BH / 2, txt, cor, E, "mm")
         return fn
 
-    w_let = (LIMITE_TXT * 6 + 2) * E
+    LET = 10                               # o letreiro gravando: 10 letras («PC 123:45», «MUDO 12:34», «GRAVANDO 2» e as dicas curtas)
+    w_let = (LET * 6) * E + int(14 * F)
 
-    def letreiro(txt, cor):
+    def letreiro(txt, cor, n=LET):
         def fn(t, a, b):
-            t.ret(a + 2, M, b - 2, BH - M, COR["linha"])
+            t.ret(a + 1, M, b - 1, BH - M, COR["linha"])
             if txt:
-                t.texto(a + int(8 * F), BH / 2, txt[:LIMITE_TXT].upper(), cor, E)
+                t.texto(a + int(7 * F), BH / 2, txt[:n].upper(), cor, E)
         return fn
 
     olho_x = None
-    add(16 * F, lambda t, a, b: [t.ret((a + b) // 2 + dx - p, BH // 2 + i * p * 3 - p, (a + b) // 2 + dx + p, BH // 2 + i * p * 3 + p, "#4a4a56")
-                                 for p in (max(2, int(2 * F)),) for i in range(-2, 3) for dx in (-p * 2, p * 2)], "alca", "ARRASTE A BARRA")
+    add(12 * F, lambda t, a, b: [t.ret((a + b) // 2 + dx - p, BH // 2 + i * p * 3 - p, (a + b) // 2 + dx + p, BH // 2 + i * p * 3 + p, "#4a4a56")
+                                 for p in (max(2, int(2 * F)),) for i in range(-1, 2) for dx in (-p * 2, p * 2)], "alca", "ARRASTAR")
     if e["modo"] == "grav":
         olho_x = sum(w for w, _, _, _ in itens) + BH / 2
         add(BH, None, "olho", "CONCLUIR")
         dica = e.get("dica")
         tempo, quem = e.get("tempo", "0:00"), e.get("quem", "PC")
+        sigla = quem[:2].upper()          # PC / PR / ... — o nome inteiro de um app não cabia nas 10 letras
         if dica:
             txt, cor = dica, "amarelo"
         elif e.get("mudo"):
-            txt, cor = "SEM SOM " + tempo, "vermelho"
-        elif e.get("pausado"):
-            txt, cor = "%s PAUSA %s" % ("PR" if quem == "Premiere" else quem, tempo), "amarelo"
+            txt, cor = ("MUDO " + tempo) if len("MUDO " + tempo) <= LET else tempo, "vermelho"
+        elif e.get("pausado"):             # pausado: o tempo em amarelo e o botão vira o ▶ vermelho (a palavra PAUSA não cabia)
+            txt, cor = "%s %s" % (sigla, tempo), "amarelo"
         else:
-            txt, cor = "%s %s" % (quem, tempo), "branco"
+            txt, cor = "%s %s" % (sigla, tempo), "branco"
         add(w_let, letreiro(txt, cor))
-        if quem in ("PC", "Premiere"):
-            add(CEL, bt_ico("play", "#ffffff", "vermelho", zona="pausa") if e.get("pausado") else bt_ico("pausa", "#FFD60A", "neutro", zona="pausa"),
-                "pausa", "CONTINUAR" if e.get("pausado") else "PAUSAR")
-            ps = e.get("pedacos") or []
-            if ps:
-                add(4 * F)
-                for n, est in ps:
-                    def ped(t, a, b, n=n, est=est):
-                        f = {"gravando": "#ff1e2e", "vale": "#d6001c", "apagado": "#1a1a20"}[est]
-                        if hv == ("ped", n) and est != "gravando":
-                            f = "#3a3a46" if est == "vale" else "#5a1a24"
-                        t.ret(a + 2, M + 2, b - 2, BH - M - 2, f)
-                        if est == "apagado":
-                            t.borda(a + 2, M + 2, b - 2, BH - M - 2, "#3a3a44", 1)
-                            t.d.line((a + 5, M + 5, b - 6, BH - M - 6), fill=rgba("#5b5b63"), width=max(1, int(2 * F)))
-                        t.texto((a + b) / 2, BH / 2, str(n), "apagado" if est == "apagado" else "branco", max(2, E - 1), "mm")
-                    add(24 * F, ped, ("ped", n), "PEDACO %d: %s" % (n, {"gravando": "GRAVANDO", "vale": "APAGAR", "apagado": "VOLTAR"}[est]))
-        if e.get("desenho", True):          # sem desenho (Mac): a barra fica sem as ferramentas
-            add(14 * F, risco)
+        # 16/11 (ele, vendo a prévia: «o que ta fudendo é essas tools de desenho na gravação do kakashi, elas só devem aparecer na
+        # função de print normal caso eu faça»): gravando, a barra NÃO mostra mais as ferramentas — elas moram só no recorte do Page
+        # Down (barra_recorte, presa embaixo da área). O Desenho do kakashi.pyw fica parado no «cursor» (só a barra muda de ferramenta).
+        if e.get("desenho", True) and FERRAMENTAS_NA_GRAVACAO:
+            add(10 * F, risco)
             for nome, dc in FERRAMENTAS:
                 ativo = e.get("ferr") == nome
                 cor = "#ff1e2e" if nome == "laser" else (CORES_DESENHO[e.get("cor") or 0][1] if nome != "cursor" else "#ffffff")
-                add(CEL, bt_ico(nome, cor, "mini" if ativo else "neutro", ativo=ativo, zona=("ferr", nome)), ("ferr", nome), dc)
-            add(6 * F)
+                add(CEL, bt_ico(nome, cor, "mini" if ativo else "neutro", ativo=ativo, zona=("ferr", nome)), ("ferr", nome), DICA_CURTA.get(nome, dc))
+            add(3 * F)
             for i, (nome, hexa) in enumerate(CORES_DESENHO):
                 def cor_fn(t, a, b, i=i, hexa=hexa):
-                    m = int(4 * F) + M // 2
+                    m = int(3 * F) + M // 2
                     t.ret(a + m // 2 - 2, M + m // 2 - 2, b - m // 2 + 2, BH - M - m // 2 + 2, "#0a0a0d")
                     t.ret(a + m // 2, M + m // 2, b - m // 2, BH - M - m // 2, hexa)
                     if e.get("cor") == i:
                         t.borda(a + 1, M, b - 1, BH - M, "#ffffff", max(2, int(2 * F)))
                     elif hv == ("cor", i):
                         t.borda(a + 1, M, b - 1, BH - M, "#5b5b63", max(1, int(F)))
-                add(22 * F, cor_fn, ("cor", i), nome.upper())
-            add(6 * F)
-            add(CEL, bt_ico("desfazer", "#ffffff", zona="desfazer"), "desfazer", "DESFAZER O ULTIMO")
-            add(CEL, bt_ico("limpar", "#ffffff", zona="limpar"), "limpar", "LIMPAR OS DESENHOS")
+                add(18 * F, cor_fn, ("cor", i), nome.upper())
+            add(3 * F)
+            add(CEL, bt_ico("desfazer", "#ffffff", zona="desfazer"), "desfazer", "DESFAZER")
+            add(CEL, bt_ico("limpar", "#ffffff", zona="limpar"), "limpar", "LIMPAR")
         # 14/11 (pedido do Gu, o Luan: «marcar intra-gravação... aparece ali rápido ou profundo, eu já clico. E aí quando termino, vira
         # o fluxo normal»): marcado aqui = no fim não pergunta, já cola /kakashi <modo>. Clique de novo desmarca. Opcional.
+        # 16/11: só o ícone (raio, lupa, a prancheta do resumo), os três BRANCOS («esse raiozinho, ele tem que ser branco, igual aos
+        # outros»); marcado = o botão vermelho com o ícone branco
         mc = e.get("marcado")
-        add(14 * F, risco)
-        # 15/11: + RESUMO (no fim o Kakashi cola a fala + os prints/links, sem leitura)
-        for txt, z in (("RAPIDO", "rapido"), ("PROFUNDO", "profundo"), ("RESUMO", "resumo")):
-            add(w_rotulo(txt), bt_txt(txt, "vermelho" if mc == z else "neutro", ("marcar", z)), ("marcar", z),
-                "DESMARCAR" if mc == z else ("NO FIM: COLA O RESUMO" if z == "resumo" else "NO FIM: " + txt))
-            add(4 * F)
         add(10 * F, risco)
-        add(w_rotulo("CONCLUIR"), bt_txt("CONCLUIR", "concluir", "concluir"), "concluir", "CONCLUIR = O ATALHO")
-        add(4 * F)
-        add(CEL, bt_ico("x", "#ff5c5c", "perigo", zona="cancelar"), "cancelar", "CANCELAR TUDO")
+        for nome, z, cor_i in (("raio", "rapido", "#ffffff"), ("lupa", "profundo", "#ffffff"), ("colar", "resumo", "#ffffff")):
+            add(CEL, bt_ico(nome, "#ffffff" if mc == z else cor_i, "vermelho" if mc == z else "neutro", zona=("marcar", z)), ("marcar", z),
+                "DESMARCAR" if mc == z else z.upper())
+        # 16/11 12:00 (Kakashi 115911, ele: «esse pause, as partes, o finalizar e o cancelar... tem que ser... no final aqui» · «a da
+        # análise profunda, resumo, ou rápido, tem que ser dividido» · «Tá misturado, ó. E são duas coisas diferentes»): dois grupos —
+        # a escolha da leitura (raio, lupa, resumo) e, depois de um divisor largo, os controles da gravação juntos no FIM:
+        # pausar · pedaços · ✓ · ✕
+        add(18 * F, divisor)
+        if quem in ("PC", "Premiere"):
+            add(CEL, bt_ico("play", "#ffffff", "vermelho", zona="pausa") if e.get("pausado") else bt_ico("pausa", "#FFD60A", "neutro", zona="pausa"),
+                "pausa", "CONTINUAR" if e.get("pausado") else "PAUSAR")
+            ps = e.get("pedacos") or []
+            if ps:
+                add(3 * F)
+                for n, est in ps:
+                    def ped(t, a, b, n=n, est=est):
+                        f = {"gravando": "#ff1e2e", "vale": "#d6001c", "apagado": "#1a1a20"}[est]
+                        if hv == ("ped", n) and est != "gravando":
+                            f = "#3a3a46" if est == "vale" else "#5a1a24"
+                        t.ret(a + 1, M + 2, b - 2, BH - M - 2, f)       # 3 px entre um pedaço e outro
+                        if est == "apagado":
+                            t.borda(a + 1, M + 2, b - 2, BH - M - 2, "#3a3a44", 1)
+                            t.d.line((a + 4, M + 5, b - 5, BH - M - 6), fill=rgba("#5b5b63"), width=max(1, int(2 * F)))
+                        t.texto((a + b - 1) / 2, BH / 2, str(n), "apagado" if est == "apagado" else "branco", max(2, E - 1), "mm")
+                    add((17 if n < 10 else 27) * F, ped, ("ped", n), "GRAVANDO" if est == "gravando" else "%s %d" % ("APAGAR" if est == "vale" else "VOLTAR", n))
+        add(3 * F)
+        add(CEL, bt_ico("check", "#ff1e2e", "concluir", zona="concluir"), "concluir", "CONCLUIR")
+        add(CEL, bt_ico("x", "#ff5c5c", "perigo", zona="cancelar"), "cancelar", "CANCELAR")
     elif e["modo"] == "captura":           # 12/11: o modo captura (o lugar do Lightshot)
         n = e.get("n", 0)
         add(CEL, lambda t, a, b: t.ico("recorte", (a + b) / 2, BH / 2, "#FFD60A", E))
-        add(w_let, letreiro("CAPTURA · %d %s" % (n, "ITEM" if n == 1 else "ITENS"), "branco"))
-        add(w_rotulo("RECORTE", True), bt_txt("RECORTE", "neutro", "recorte", "recorte", "#ffffff"), "recorte", "RECORTAR UM PEDACO DA TELA")
-        add(6 * F)
-        add(w_rotulo("COLAR TUDO", True), bt_txt("COLAR TUDO", "vermelho", "colar", "colar", "#ffffff"), "colar", "COLAR TUDO")
-        add(4 * F)
-        add(CEL, bt_ico("x", "#ff5c5c", "perigo", zona="sair_captura"), "sair_captura", "SAIR SEM COLAR")
+        add(w_let, letreiro("%d %s" % (n, "ITEM" if n == 1 else "ITENS"), "branco"))
+        add(w_rotulo("RECORTE", True), bt_txt("RECORTE", "neutro", "recorte", "recorte", "#ffffff"), "recorte", "RECORTAR")
+        add(3 * F)
+        add(w_rotulo("COLAR TUDO", True), bt_txt("COLAR TUDO", "vermelho", "colar", "colar", "#ffffff"), "colar", "COLAR")
+        add(3 * F)
+        add(CEL, bt_ico("x", "#ff5c5c", "perigo", zona="sair_captura"), "sair_captura", "SAIR")
     elif e["modo"] == "resumo":            # 15/11: o RESUMO andando / pronto (só o letreiro: não tem o que clicar)
         txt = (e.get("texto") or "RESUMO").upper()
         cor_r = "amarelo" if ("COPIADO" in txt or "COLADO" in txt or "SAIU" in txt) else "branco"
         add(CEL, lambda t, a, b: t.ico("colar", (a + b) / 2, BH / 2, "#FFD60A", E))
 
-        def letreiro_longo(t, a, b, txt=txt, cor_r=cor_r):        # o letreiro de sempre corta em 19 letras: este cabe o aviso inteiro
-            t.ret(a + 2, M, b - 2, BH - M, COR["linha"])
-            t.texto(a + int(8 * F), BH / 2, txt, cor_r, E)
-        add(largura_texto(txt, E) + int(18 * F), letreiro_longo)
-    else:                                 # a escolha: olho parado · «COMO EU LEIO?» · RÁPIDO | PROFUNDO · +N · X
+        def letreiro_longo(t, a, b, txt=txt, cor_r=cor_r):        # o letreiro de sempre é curto: este cabe o aviso inteiro
+            t.ret(a + 1, M, b - 1, BH - M, COR["linha"])
+            t.texto(a + int(7 * F), BH / 2, txt, cor_r, E)
+        add(largura_texto(txt, E) + int(16 * F), letreiro_longo)
+    else:                                 # a escolha: olho parado · «COMO EU LEIO?» · raio | lupa | resumo · +N · X
         olho_x = sum(w for w, _, _, _ in itens) + BH / 2
         add(BH)
-        add(w_let, letreiro(e.get("dica") or "COMO EU LEIO?", "amarelo" if e.get("dica") else "branco"))
-        add(w_rotulo("RAPIDO", True), bt_txt("RAPIDO", "neutro", "rapido", "raio", "#ffd60a"), "rapido", "COISA RAPIDA")
-        add(6 * F)
-        add(w_rotulo("PROFUNDO", True), bt_txt("PROFUNDO", "vermelho", "profundo", "lupa", "#ffffff"), "profundo", "ANALISE PROFUNDA")
-        add(6 * F)
-        add(w_rotulo("RESUMO", True), bt_txt("RESUMO", "neutro", "resumo", "colar", "#ffffff"), "resumo", "COLA A FALA + PRINTS E LINKS")
+        n_esc = 13                         # «COMO EU LEIO?» inteiro; a dica do mouse diz qual ícone é qual (kakashi.pyw: dica também na escolha)
+        add((n_esc * 6) * E + int(14 * F), letreiro(e.get("dica") or "COMO EU LEIO?", "amarelo" if e.get("dica") else "branco", n_esc))
+        add(CEL, bt_ico("raio", "#ffffff", "neutro", zona="rapido"), "rapido", "RAPIDO")   # 16/11: branco, igual aos outros
+        add(CEL, bt_ico("lupa", "#ffffff", "vermelho", zona="profundo"), "profundo", "PROFUNDO")
+        add(CEL, bt_ico("colar", "#ffffff", "neutro", zona="resumo"), "resumo", "RESUMO")
         fila = e.get("fila", 1)
         if fila > 1:
             add(w_rotulo("+%d" % (fila - 1)), lambda t, a, b, f=fila: t.texto((a + b) / 2, BH / 2, "+%d" % (f - 1), "cinza", E, "mm"))
-        add(6 * F)
-        add(CEL, bt_ico("x", "#ff5c5c", "perigo", zona="descartar"), "descartar", "DESCARTAR ESTA")
-    add(6 * F)
+        add(3 * F)
+        add(CEL, bt_ico("x", "#ff5c5c", "perigo", zona="descartar"), "descartar", "DESCARTAR")
+    add(4 * F)
     W = sum(w for w, _, _, _ in itens)
     t = Tela8(W, BH)
-    t.botao(0, 0, W, BH, "corpo")          # o corpo da barra, com o relevo do painel
+    t.botao(0, 0, W, BH, "corpo", b=RB)    # o corpo da barra, com o relevo do painel
     if e.get("flash"):
         t.borda(0, 0, W, BH, "#ffffff", max(2, int(2 * F)))
     x, zonas = 0, []
@@ -338,10 +358,18 @@ def barra(e, F=1.0):
     return t.im, zonas, (int(olho_x) if olho_x is not None else None), int(OLHO_PX * F)
 
 
+FERRAMENTAS_NA_GRAVACAO = False   # 16/11: desenho só no print (Page Down); True volta as ferramentas pra barra gravando
+
+# 16/11: as dicas das ferramentas no letreiro de 10 letras (as compridas de antes cortavam no meio)
+DICA_CURTA = {"cursor": "CURSOR", "caneta": "CANETA", "marca": "MARCADOR", "linha": "LINHA", "seta": "SETA", "caixa": "QUADRADO",
+              "laser": "LASER"}
+
+
 def barra_recorte(e, F=1.0):
     """a barrinha embaixo do recorte do modo captura (mesmo contrato do visual.barra_recorte) → (imagem, zonas)"""
     E = escala(F)
-    BH, CEL, M = int(40 * F), int(30 * F), max(4, int(5 * F))
+    BH, CEL, M = int(32 * F), int(26 * F), max(3, int(3 * F))     # 16/11: 40 → 32, igual a barra gravando
+    RB = max(2, int(2 * F))
     hv = e.get("hover")
     itens = []
     add = lambda w, fn=None, z=None, dc=None: itens.append((int(w), fn, z, dc))     # noqa: E731
@@ -349,44 +377,44 @@ def barra_recorte(e, F=1.0):
     for nome, dc in (("caneta", "Caneta"), ("marca", "Marca-texto"), ("linha", "Linha"), ("seta", "Seta"), ("caixa", "Quadrado")):
         def fn(t, a, b, nome=nome):
             ativo = e.get("ferr") == nome
-            t.botao(a + 2, M, b - 2, BH - M, "mini" if ativo else "neutro", hover=hv == ("ferr", nome))
+            t.botao(a + 1, M, b - 1, BH - M, "mini" if ativo else "neutro", hover=hv == ("ferr", nome), b=RB)
             if ativo:
-                t.borda(a + 2, M, b - 2, BH - M, COR["amarelo"], max(2, int(2 * F)))
+                t.borda(a + 1, M, b - 1, BH - M, COR["amarelo"], max(2, int(2 * F)))
             t.ico(nome, (a + b) / 2, BH / 2, CORES_DESENHO[e.get("cor") or 0][1], E)
         add(CEL, fn, ("ferr", nome), dc)
     add(6 * F)
     for i, (nome, hexa) in enumerate(CORES_DESENHO):
         def cor_fn(t, a, b, i=i, hexa=hexa):
-            m = int(4 * F) + M // 2
+            m = int(3 * F) + M // 2
             t.ret(a + m // 2 - 2, M + m // 2 - 2, b - m // 2 + 2, BH - M - m // 2 + 2, "#0a0a0d")
             t.ret(a + m // 2, M + m // 2, b - m // 2, BH - M - m // 2, hexa)
             if e.get("cor") == i:
                 t.borda(a + 1, M, b - 1, BH - M, "#ffffff", max(2, int(2 * F)))
-        add(22 * F, cor_fn, ("cor", i), nome.capitalize())
+        add(18 * F, cor_fn, ("cor", i), nome.capitalize())
     add(6 * F)
 
     def desf(t, a, b):
-        t.botao(a + 2, M, b - 2, BH - M, "neutro", hover=hv == "desfazer")
+        t.botao(a + 1, M, b - 1, BH - M, "neutro", hover=hv == "desfazer", b=RB)
         t.ico("desfazer", (a + b) / 2, BH / 2, "#ffffff", E)
     add(CEL, desf, "desfazer", "Desfazer")
-    add(14 * F, lambda t, a, b: t.ret((a + b) // 2 - 1, M, (a + b) // 2 + 1, BH - M, COR["risco"]))
-    wc = largura_texto("COPIAR", E) + (9 + 2) * E + int(30 * F)
+    add(10 * F, lambda t, a, b: t.ret((a + b) // 2 - 1, M + 2, (a + b) // 2 + 1, BH - M - 2, COR["risco"]))
+    wc = largura_texto("COPIAR", E) + (9 + 2) * E + int(22 * F)
 
     def copiar(t, a, b):
-        cor = t.botao(a + 2, M, b - 2, BH - M, "vermelho", hover=hv == "copiar")
-        t.ico("check", a + int(14 * F) + 4 * E, BH / 2, "#ffffff", E)
-        t.texto(a + int(20 * F) + 10 * E, BH / 2, "COPIAR", cor, E)
+        cor = t.botao(a + 1, M, b - 1, BH - M, "vermelho", hover=hv == "copiar", b=RB)
+        t.ico("check", a + int(10 * F) + 4 * E, BH / 2, "#ffffff", E)
+        t.texto(a + int(16 * F) + 10 * E, BH / 2, "COPIAR", cor, E)
     add(wc, copiar, "copiar", "Copiar (Enter)")
     add(4 * F)
 
     def sair(t, a, b):
-        t.botao(a + 2, M, b - 2, BH - M, "perigo", hover=hv == "sair")
+        t.botao(a + 1, M, b - 1, BH - M, "perigo", hover=hv == "sair", b=RB)
         t.ico("x", (a + b) / 2, BH / 2, "#ff5c5c", E)
     add(CEL, sair, "sair", "Sair (Esc)")
     add(6 * F)
     W = sum(w for w, _, _, _ in itens)
     t = Tela8(W, BH)
-    t.botao(0, 0, W, BH, "corpo")
+    t.botao(0, 0, W, BH, "corpo", b=RB)
     x, zonas = 0, []
     for w, fn, z, dc in itens:
         if fn:
