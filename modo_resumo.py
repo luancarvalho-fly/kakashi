@@ -276,6 +276,63 @@ def itens_da_sessao(p, meta, rep):
     return sorted(itens, key=lambda x: x[0])
 
 
+PRINT_LONGE_S = 6          # dois prints automáticos ficam pelo menos 6 s longe um do outro
+PRINT_SEM_AQUI_S = 20      # fala sem «aqui/isso/ó»: um print a cada ~20 s de fala, pra nada ficar sem imagem
+JA_FEZ_S = 10              # 15/11 ~21h30 (ele: «se eu tivesse tirado print, desenhado... a tua análise... vai saber, ah, o Luan já fez
+                           # aqui, então não precisa levar mais nada... o Kakashi ele é inteligente»): print/desenho DELE cobre ±10 s
+
+
+def prints_inteligentes(p, fala, dur, rep, ja, resumo_pc):
+    """15/11 ~21h25 (ele, no 1º RESUMO de verdade: «achei que ia ter uns prints automáticos inteligentes... do lugar que eu mostrei,
+    igual fica nas gravações do Kakashi, com o mouse com aquela paradinha vermelha em volta... eu não parei pra tirar print»).
+    A gravação já tira print sozinha (a cada ~3 s de fala, ao parar o mouse, ao clicar), com o recorte de perto e o círculo vermelho
+    no mouse (`_perto.jpg`). Aqui escolho os que importam: no «aqui / isso aqui / ó / olha / esse» dele, o print mais perto (de 1 s
+    antes a 2 s depois; senão ±3 s), o mesmo critério do /kakashi; sem nenhum «aqui», um a cada ~20 s de fala. Pula onde ele já
+    copiou print ou desenhou (`ja` = tempos, ±JA_FEZ_S). Máximo ~1 a cada 12 s de gravação (mínimo 4, máximo 12)."""
+    evs = []
+    for l in open(os.path.join(p, "eventos.jsonl"), encoding="utf-8", errors="replace"):
+        if l.strip("\x00 \r\n\t"):
+            try:
+                e = json.loads(l)
+            except ValueError:
+                continue
+            if e.get("tipo") == "print" and e.get("motivo") != "traco" and e.get("arquivo") and float(e.get("t", 0)) >= rep:
+                evs.append(e)
+    if not evs:
+        return []
+    alvo = []
+    for t, palavra, _ in resumo_pc.momentos_aqui(fala):
+        cand = [e for e in evs if -1.0 <= e["t"] - t <= 2.0] or [e for e in evs if abs(e["t"] - t) <= 3.0]
+        if cand:
+            alvo.append((0 if re.match(r"^(aqui|ó|olha)$", palavra, re.I) else 1, t, palavra,
+                         min(cand, key=lambda e: abs(e["t"] - t))))
+    if not alvo:                          # falou sem apontar: um print a cada ~20 s de fala
+        ultimo = -1e9
+        for a, _b, _tx, _c in fala:
+            if a - ultimo >= PRINT_SEM_AQUI_S:
+                cand = [e for e in evs if abs(e["t"] - a) <= 3.0]
+                if cand:
+                    alvo.append((2, a, "", min(cand, key=lambda e: abs(e["t"] - a)))); ultimo = a
+    teto = max(4, min(12, int(float(dur or 0) / 12) + 2))
+    escolhidos = []
+    for prio, t, palavra, e in sorted(alvo, key=lambda x: (x[0], x[1])):
+        if len(escolhidos) >= teto:
+            break
+        if any(abs(e["t"] - x[3]["t"]) < PRINT_LONGE_S for x in escolhidos) or any(abs(e["t"] - tj) <= JA_FEZ_S for tj in ja):
+            continue
+        escolhidos.append((prio, t, palavra, e))
+    out = []
+    A = lambda rel: os.path.normpath(os.path.join(p, rel))      # noqa: E731
+    for prio, t, palavra, e in sorted(escolhidos, key=lambda x: x[3]["t"]):
+        perto = e.get("perto") if e.get("perto") and os.path.isfile(A(e["perto"])) else None
+        quando = ("«%s»" % palavra) if palavra else "falando"
+        if perto:
+            out.append((float(e["t"]), "📸 onde eu mostrei (%s): %s · tela inteira: %s" % (quando, A(perto), A(e["arquivo"]))))
+        else:
+            out.append((float(e["t"]), "📸 onde eu mostrei (%s): %s" % (quando, A(e["arquivo"]))))
+    return out
+
+
 def resumo_de(p):
     """(cabeçalho, [(t, linha)], segundos) de uma gravação"""
     import resumo_pc
@@ -317,6 +374,11 @@ def resumo_de(p):
     frs = resumo_pc.frases(fala)
     andamento(etapa="juntando")
     itens = itens_da_sessao(p, meta, rep)        # 15/11: sem esperar o links.json (as páginas vêm da extensão)
+    try:                                          # 15/11 ~21h25: os prints automáticos do lugar que ele mostrou
+        ja = [t for t, l in itens if l.startswith(("🖼", "✏️"))]
+        itens = sorted(itens + prints_inteligentes(p, fala, meta.get("duracao_s"), rep, ja, resumo_pc), key=lambda x: x[0])
+    except Exception as e:
+        log("prints automáticos: %r" % e)
     # a linha do tempo: frases seguidas viram um parágrafo; um item no meio abre outro
     linhas, par, par_t = [], [], None
     fila = sorted([(t, 0, f) for t, f in frs] + [(t, 1, l) for t, l in itens], key=lambda x: (x[0], x[1]))
@@ -363,7 +425,7 @@ def montar(pastas):
         blocos.append((pf, cab, linhas))
     if not blocos:
         return None, None
-    txt = ["KAKASHI · RESUMO (a gravação, na ordem: o que eu falei + o que eu mostrei no minuto; as imagens estão no caminho)"]
+    txt = ["KAKASHI · RESUMO (a gravação, na ordem: o que eu falei + o que eu mostrei no minuto; as imagens estão no caminho — 📸 = print automático de onde eu apontei, com o mouse no círculo vermelho)"]
     for pf, cab, linhas in blocos:
         txt += ["", "## " + cab, "Pasta: " + pf, ""]
         txt += linhas or ["(não achei fala nem nada copiado nessa gravação)"]
