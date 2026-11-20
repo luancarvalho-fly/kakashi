@@ -90,8 +90,8 @@ Traço desfeito ainda aparece no vídeo/print: ignorar. Passo pra reproduzir nun
   Sem as ferramentas da ARDI nesta sessão do Claude: diga isso e ofereça trocar pra `"tandera"`.
 - `"tandera"` (`"local"` é o nome antigo, vale o mesmo): o próprio resumo transcreve pelo **TANDERA** — o motor de análise da Fly, UM
   só (lei do Luan, 01/11: «o Tandera é o nosso motor, pra análise de qualquer skill... Ele tem que estar 100% atualizado»). É a peça
-  «fala»: Whisper large-v3-turbo, só os trechos com som (sem VAD), filtro de laço e de frase inventada, no PROCESSADOR (a placa fica
-  livre pro Premiere). A pasta do Tandera vem do `config.json` → `"tandera"` (ou é a `tandera\` ao lado do Kakashi). A transcrição
+  «fala»: Whisper large-v3-turbo, só os trechos com som (sem VAD), filtro de laço e de frase inventada, na PLACA de vídeo, pelo porteiro do Tandera (20/11): ele mede
+  a memória livre e divide a placa com o Premiere aberto; processador só se não couber, com aviso. A pasta do Tandera vem do `config.json` → `"tandera"` (ou é a `tandera\` ao lado do Kakashi). A transcrição
   guardada (`fala_transcricao.json`) só é relida se foi feita com a versão ATUAL da peça; se a peça mudou, transcreve de novo sozinho.
   Se o Tandera falhar, o resumo PARA e diz por quê: não existe reserva com outro motor (nunca um Whisper à parte). O `perfil.json` do
   PC check diz se o PC aguenta.
@@ -175,7 +175,7 @@ A pessoa pode trocar quando quiser: janelinha do KAKASHI (atalho KAKASHI na áre
 livre), gravar em `config.json` → `"atalho"` e pedir pra ela usar o botão TROCAR O ATALHO, ou reiniciar o Kakashi com ele `parado`.
 
 ## Cuidados
-- Só lê: o Kakashi nunca toca som e não usa a placa de vídeo.
+- Só lê: o Kakashi nunca toca som; a gravação não usa a placa de vídeo (a transcrição usa, pelo porteiro do Tandera).
 - Senha nunca é lida (o gravador pula campo de senha e gerenciador de senha).
 - A gravação é da pessoa: não mande pra lugar nenhum além da transcrição (ARDI dela).
 - A tela pode ser 4K: recortar só a região que importa antes de olhar.

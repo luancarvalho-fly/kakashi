@@ -57,7 +57,7 @@
  */
 const ppro = require("premierepro");
 
-const VERSAO = "0.3.1";
+const VERSAO = "0.3.2";           // 20/11: agulha com 1 chamada (projeto + sequencia guardados) — otimizacao Fase 1B
 /* 7815 = o CORRETOR vivo. 7816 = a copia de desenvolvimento (CORRETOR DEV). Mudar aqui = mudar
  * no servidor.py e no ligar.ps1. O simulador troca esta linha e ABORTA se a troca falhar. */
 const PORTA = 7815;
@@ -546,6 +546,7 @@ async function ligarOuvintes(g) {
   const C = daConst;
   ouvir("sequencia_ativada", null, [cand("Constants.SequenceEvent.ACTIVATED", C("SequenceEvent", "ACTIVATED"))], function () {
     selSuja = Date.now(); projSujo = projSujo || Date.now();
+    ctxAgulhaSujo = true;           // 20/11: a agulha rele projeto + sequencia na proxima volta
   });
   ouvir("selecao_mudou", null, [cand("Constants.SequenceEvent.SELECTION_CHANGED", C("SequenceEvent", "SELECTION_CHANGED"))], function () {
     selSuja = Date.now();
@@ -1192,8 +1193,20 @@ function moverCaches(pares, removidos) {
 function temAlgo(c) { return temDiff(c.clipes) || c.trans.length > 0 || c.faixas.length > 0 || !!c.io; }
 
 /* ------------------------------------------------------------ capturas: agulha */
-async function passoAgulha() {
+/* 20/11 (otimizacao Fase 1B): a agulha fazia 3 chamadas ao Premiere a cada volta (projeto + sequencia + posicao, ~1.000/min gravando).
+ * Agora projeto e sequencia ficam guardados e so sao relidos quando chega o aviso «sequencia ativada» (funciona: 9 disparos na V015),
+ * quando a posicao falha (sequencia fechada) ou a cada 2 s (rede de seguranca: troca de projeto sem aviso). Volta normal = 1 chamada. */
+const T_CTX_AGULHA = 2000;
+let ctxAgulha = null, ctxAgulhaLido = 0, ctxAgulhaSujo = true;
+async function contextoAgulha() {
+  const agora = Date.now();
+  if (!ctxAgulhaSujo && ctxAgulha && ctxAgulha.seq && agora - ctxAgulhaLido < T_CTX_AGULHA) return ctxAgulha;
   const c = await lerContexto();
+  ctxAgulha = c; ctxAgulhaLido = agora; ctxAgulhaSujo = false;
+  return c;
+}
+async function passoAgulha() {
+  const c = await contextoAgulha();
   if (!c || !c.seq) { atual = null; return; }
   if (!atual || atual.seqId !== c.seqId) {
     /* objetos do Premiere da sequencia anterior nao ficam presos (o diff so precisa de itens/faixas/trans) */
@@ -1211,9 +1224,10 @@ async function passoAgulha() {
     atual.nome = c.nome;
     atual.proj = c.proj;
   }
-  const pos = seg(await c.seq.getPlayerPosition());
+  let pos;
+  try { pos = seg(await c.seq.getPlayerPosition()); } catch (e) { ctxAgulhaSujo = true; throw e; }
   const ms = Date.now();
-  if (pos === null) return;
+  if (pos === null) { ctxAgulhaSujo = true; return; }
   let vel = 0, de = null;
   if (ag) {
     const dt = (ms - ag.ms) / 1000;

@@ -283,7 +283,8 @@ def barra(e, F=1.0):
         # outros»); marcado = o botão vermelho com o ícone branco
         mc = e.get("marcado")
         add(10 * F, risco)
-        for nome, z, cor_i in (("raio", "rapido", "#ffffff"), ("lupa", "profundo", "#ffffff"), ("colar", "resumo", "#ffffff")):
+        # 16/11 17:53 (Kakashi 175345, ele: «esse resumo tem que vir antes do rápido... Tem que ser resumo, rápido e profundo»)
+        for nome, z, cor_i in (("colar", "resumo", "#ffffff"), ("raio", "rapido", "#ffffff"), ("lupa", "profundo", "#ffffff")):
             add(CEL, bt_ico(nome, "#ffffff" if mc == z else cor_i, "vermelho" if mc == z else "neutro", zona=("marcar", z)), ("marcar", z),
                 "DESMARCAR" if mc == z else z.upper())
         # 16/11 12:00 (Kakashi 115911, ele: «esse pause, as partes, o finalizar e o cancelar... tem que ser... no final aqui» · «a da
@@ -334,9 +335,10 @@ def barra(e, F=1.0):
         add(BH)
         n_esc = 13                         # «COMO EU LEIO?» inteiro; a dica do mouse diz qual ícone é qual (kakashi.pyw: dica também na escolha)
         add((n_esc * 6) * E + int(14 * F), letreiro(e.get("dica") or "COMO EU LEIO?", "amarelo" if e.get("dica") else "branco", n_esc))
+        # 16/11 17:53: ordem RESUMO · RÁPIDO · PROFUNDO (ele: «Tem que ser resumo, rápido e profundo»)
+        add(CEL, bt_ico("colar", "#ffffff", "neutro", zona="resumo"), "resumo", "RESUMO")
         add(CEL, bt_ico("raio", "#ffffff", "neutro", zona="rapido"), "rapido", "RAPIDO")   # 16/11: branco, igual aos outros
         add(CEL, bt_ico("lupa", "#ffffff", "vermelho", zona="profundo"), "profundo", "PROFUNDO")
-        add(CEL, bt_ico("colar", "#ffffff", "neutro", zona="resumo"), "resumo", "RESUMO")
         fila = e.get("fila", 1)
         if fila > 1:
             add(w_rotulo("+%d" % (fila - 1)), lambda t, a, b, f=fila: t.texto((a + b) / 2, BH / 2, "+%d" % (f - 1), "cinza", E, "mm"))

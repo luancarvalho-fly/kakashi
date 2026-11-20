@@ -24,6 +24,7 @@ Saída: RESUMO.md na pasta da gravação (a 1ª) — é o texto que o Kakashi co
   --andamento: a barra do Kakashi lê dali a etapa e a previsão («COMPILANDO 60% · PRONTO EM 3 S»).
 """
 import datetime, json, os, re, sys, time
+os.environ["TANDERA_PEDIDO_DELE"] = "1"     # 20/11 (otimização): o resumo é ação DELE na hora — nunca «trabalho de fundo» pro porteiro da placa
 
 AQUI = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, AQUI)
@@ -85,14 +86,17 @@ def ditado_no_ar():
 
 
 def como_transcrever(resumo_pc):
-    """«ditado» (8178, rápido) ou «processador» (o de sempre). Premiere aberto = a placa é dele (regra 9), salvo o config."""
+    """«ditado» (8178, rápido) ou «processador» (o de sempre).
+    20/11 (otimização, item 2 — ele: «é pra rodar tudo na placa de video po... tem que funcionar mesmo eu usando o Premiere»): o Whisper
+    do ditado JÁ ESTÁ carregado na placa (residente): usar ele não pede memória nova, então o Premiere aberto não tira mais o resumo do
+    ditado. Só vai pro processador se o ditado estiver fora do ar, ou se for trabalho de fundo (o Claude sozinho) com ele editando."""
     if not ditado_no_ar():
         return "processador", "o ditado (8178) está fora do ar"
     try:
         tandera = _tandera(resumo_pc)
-        from tandera import base
-        if base.premiere_aberto() and not cfg().get("resumo_placa_com_premiere"):
-            return "processador", "Premiere aberto (a placa é dele)"
+        from tandera import porteiro
+        if porteiro.fundo() and not porteiro.liberada_pro_fundo():
+            return "processador", "trabalho de fundo com o Premiere %s (regra 9)" % porteiro.premiere()
     except Exception as e:
         return "processador", "Tandera: %r" % e
     return "ditado", ""
