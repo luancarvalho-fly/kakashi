@@ -225,6 +225,19 @@ def itens_da_sessao(p, meta, rep):
         itens.append((t, linha))
 
     A = lambda rel: os.path.normpath(os.path.join(p, rel))      # noqa: E731
+    videos = []
+
+    def _baixa(u):
+        """20/11: link de vídeo (YouTube, Insta, TikTok...) → entra na fila de baixar e a linha diz onde vai cair"""
+        try:
+            import baixar_link
+        except Exception:
+            return ""
+        if not baixar_link.eh_video(u) or cfg().get("baixar_links") is False:
+            return ""
+        if u not in videos:
+            videos.append(u)
+        return "  → ⬇ vídeo e som baixando em %s (andamento no estado.json de lá)" % os.path.join(p, "baixados")
     # o que ele copiou
     for e in evs:
         if e.get("tipo") != "copiou":
@@ -239,7 +252,8 @@ def itens_da_sessao(p, meta, rep):
             for c in e["arquivos"]:
                 add(t, "📎 arquivo que copiei: %s" % c, ("arq", c))
         elif oq == "link" and e.get("texto"):
-            add(t, "🔗 link que copiei: %s" % e["texto"].strip(), ("url", e["texto"].strip()))
+            u = e["texto"].strip()
+            add(t, "🔗 link que copiei: %s%s" % (u, _baixa(u)), ("url", u))
         elif oq == "texto" and e.get("texto"):
             tx = e["texto"].strip()
             if tx.startswith("/kakashi") or app.startswith("pythonw"):   # o que o próprio Kakashi copiou
@@ -312,7 +326,15 @@ def itens_da_sessao(p, meta, rep):
         if not u or u.startswith(("chrome://", "about:", "chrome-extension://", "edge://")):
             continue
         tit = re.sub(r"\s+", " ", (l.get("titulo") or "")).strip()[:90]
-        add(float(l.get("t", 0)), "🌐 no Chrome: %s%s" % ((tit + " — ") if tit else "", u), ("url", u))
+        add(float(l.get("t", 0)), "🌐 no Chrome: %s%s%s" % ((tit + " — ") if tit else "", u, _baixa(u)), ("url", u))
+    # 20/11: os links de vídeo vão baixando sozinhos (vídeo + som) em <pasta>aixados, sem atrasar o RESUMO
+    if videos:
+        try:
+            import baixar_link
+            baixar_link.em_segundo_plano(p, videos)
+            log("baixando %d link(s) de vídeo em %s" % (len(videos), os.path.join(p, "baixados")))
+        except Exception as e:
+            log("baixar links: %r" % e)
     return sorted(itens, key=lambda x: x[0])
 
 

@@ -36,6 +36,18 @@ e rápida... mais rápido que uma leitura do Kakashi rápido».
 - **O atalho da captura (o «Lightshot») = só o print** desde 15/11: recorta, desenha, Enter/Ctrl+C copia e fecha. Não junta nada
   nem cola sozinho.
 
+## LINK DE VÍDEO BAIXA SOZINHO (20/11)
+Ele (20/11): «baixar as coisas da internet automatico, pra vc n ficar com mais nenhuma trava de download, conseguir baixar oq vc
+quiser pelo kakashi». Link de vídeo que ele COPIOU ou ABRIU no navegador durante a gravação (YouTube, Instagram, TikTok, X, Vimeo,
+Loom, Facebook, Drive público...) vira, sozinho e em segundo plano, o vídeo com som (mp4) + o som sozinho (m4a) em
+`<pasta da gravação>aixados\`. A linha do RESUMO termina com «→ ⬇ vídeo e som baixando em ...».
+- Antes de usar, ler `baixados\estado.json`: cada link diz `andamento` (na fila / baixando / pronto / falhou), o `video`, o `audio`
+  e o `erro`. Ainda baixando = esperar ali, não baixar de novo.
+- Link fora da gravação ou que falhou: `python baixar_link.py <pasta> <url>` (mesma pasta do Kakashi) ou `--teste <url>`.
+- Ordem: sem login → login do navegador. Instagram e post privado pedem login; o Chrome aberto não deixa o yt-dlp ler o login
+  (o erro diz «o navegador não deixa ler»). Slack, Notion e Drive privado o yt-dlp não abre: baixar pelo navegador.
+- Desligar: `"baixar_links": false` no config.json.
+
 ## O MODO — RÁPIDO × PROFUNDO (Kakashi 3.0, 12/11; AUTOMÁTICO desde 14/11)
 **AUTOMÁTICO (14/11 ~22h; o Luan: «você mesmo pela gravação tu já entende se é rápido ou profundo, para não ter que ficar
 clicando nisso» → «Pode, faz as duas»):** ao concluir o Kakashi NÃO pergunta mais: cola só `/kakashi`. De onde vem o modo, nesta ordem:

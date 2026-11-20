@@ -1,5 +1,7 @@
 pillow
 psutil
+# 20/11: link de vídeo que aparece na gravação baixa sozinho (vídeo + som) — precisa também do ffmpeg instalado (winget install Gyan.FFmpeg / brew install ffmpeg)
+yt-dlp[default,curl-cffi]
 pyaudiowpatch; sys_platform == "win32"
 # Mac (o instalar.py põe sozinho): numpy e pyobjc (Quartz, Cocoa, ApplicationServices)
 numpy; sys_platform == "darwin"
