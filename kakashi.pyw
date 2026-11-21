@@ -78,6 +78,10 @@ FFMPEG = shutil.which("ffmpeg") or "ffmpeg"
 MAC = sys.platform == "darwin"      # porte pro Mac (02/11/2026): as peças do sistema vêm do mac.py; a lógica é a mesma
 SEM_JANELA = 0x08000000 if not MAC else 0
 LOG = os.path.join(AQUI, "kakashi.log")
+# 20/11 noite (ele: «seria perfeito se a análise do Kakashi já ficava pronta no final da gravação... Enquanto tá gravando, já tá
+# recolhendo»): a fala é transcrita DURANTE a gravação (modo_resumo.py --ao-vivo, um processo escondido por gravação) e o LEITURA.md
+# (o dossiê) fica pronto segundos depois do concluir. config.json "ao_vivo": false desliga (volta a transcrever só no fim).
+AO_VIVO_PADRAO = False   # pacote da Fly: a fala ao vivo vem desligada (precisa do Tandera com placa); "ao_vivo": true no config.json liga
 
 if not MAC:
     user32 = ctypes.windll.user32
@@ -480,6 +484,83 @@ class GravacaoPC:
         threading.Thread(target=self._area, daemon=True).start()
         threading.Thread(target=self._capturas, daemon=True).start()
         self._salvar_meta()
+        self._ao_vivo_ligar()
+
+    # ---------- 20/11 noite: AO VIVO — a fala transcrita durante a gravação (modo_resumo.py --ao-vivo) ----------
+    ao_vivo = None              # o processo (atributo de CLASSE: quem monta sem o __init__, como os testes e o OlhoPremiere, não quebra)
+    _concluiu_epoch = None
+
+    def _ao_vivo_ligar(self, premiere=None):
+        """um processo escondido (pythonw, prioridade abaixo do normal) por gravação; ele lê a voz que está sendo gravada e transcreve
+        a cada ~30–40 s pelo motor quente do Tandera (placa). No Mac do time (sem ditado/placa) e com "ao_vivo": false = não liga."""
+        if MAC or cfg().get("ao_vivo", AO_VIVO_PADRAO) is False:
+            return
+        try:
+            os.makedirs(os.path.join(self.pasta, "_ao_vivo"), exist_ok=True)
+            if premiere is None:
+                self._ao_vivo_avisar()
+            cmd = [sys.executable, os.path.join(AQUI, "modo_resumo.py"), "--ao-vivo", self.pasta, "--pai", str(os.getpid())]
+            if premiere:
+                cmd += ["--premiere", premiere]
+            self.ao_vivo = subprocess.Popen(cmd, cwd=AQUI, creationflags=SEM_JANELA | 0x00004000,     # BELOW_NORMAL: nunca disputa com a gravação
+                                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                            env=dict(os.environ, KAKASHI_LOG=LOG))
+            log("ao vivo: ligado em %s (pid %d)" % (os.path.basename(self.pasta), self.ao_vivo.pid))
+        except Exception as e:
+            self.ao_vivo = None
+            log("ao vivo: não ligou em %s: %r" % (os.path.basename(self.pasta), e))
+
+    def _ao_vivo_avisar(self, fim=False, cancelar=False, rabo_tarde=False):
+        """o processo ao vivo lê daqui os pedaços (fechado = tem dur; apagado), a pausa, o fim e o cancelar"""
+        d = os.path.join(self.pasta, "_ao_vivo")
+        if not os.path.isdir(d) or not getattr(self, "pedacos", None):
+            return
+        try:
+            st = {"pedacos": [{k: p.get(k) for k in ("n", "ini", "dur", "apagado", "epoch")} for p in self.pedacos],
+                  "pausado": bool(self.pausado), "fim": bool(fim), "cancelar": bool(cancelar), "agora": round(time.time(), 3),
+                  "rabo_tarde": bool(rabo_tarde),
+                  "concluiu_epoch": round(self._concluiu_epoch, 3) if self._concluiu_epoch else None}
+            with open(os.path.join(d, "pedacos.json.tmp"), "w", encoding="utf-8") as f:
+                json.dump(st, f, ensure_ascii=False)
+            os.replace(os.path.join(d, "pedacos.json.tmp"), os.path.join(d, "pedacos.json"))
+        except Exception as e:
+            log("ao vivo: avisar: %r" % e)
+
+    def _ao_vivo_fim(self, cancelar):
+        """no concluir, com os arquivos já fechados. Cancelar (ou tudo apagado) = para o processo e APAGA o dossiê antes de a pasta ir
+        pro _descartadas. Senão avisa o fim e espera (até 3 s) ele ler o último trecho de cada pedaço — só depois os pedaços são
+        renomeados e juntados (é o que ainda faltava transcrever)."""
+        pr = self.ao_vivo
+        d = os.path.join(self.pasta, "_ao_vivo")
+        if cancelar:
+            self._ao_vivo_avisar(fim=True, cancelar=True)
+            if pr is not None:
+                try:
+                    pr.wait(3)
+                except Exception:
+                    try:
+                        pr.kill(); pr.wait(3)
+                    except Exception:
+                        pass
+            shutil.rmtree(d, ignore_errors=True)
+            try:
+                os.remove(os.path.join(self.pasta, "LEITURA.md"))      # o parcial do dossiê (antes de concluir não existe outro)
+            except OSError:
+                pass
+            if pr is not None:
+                log("ao vivo: cancelado — dossiê apagado (%s)" % os.path.basename(self.pasta))
+            return
+        if pr is None or pr.poll() is not None:
+            return
+        self._ao_vivo_avisar(fim=True)
+        t0 = time.time()
+        while time.time() - t0 < 3.0 and not os.path.isfile(os.path.join(d, "rabo.ok")) and pr.poll() is None:
+            time.sleep(0.05)
+        if not os.path.isfile(os.path.join(d, "rabo.ok")):
+            # não leu a tempo: os pedaços vão ser renomeados/juntados agora — ele NÃO lê mais os arquivos dos pedaços; o que faltou é
+            # transcrito do fala.wav final (a lacuna)
+            self._ao_vivo_avisar(fim=True, rabo_tarde=True)
+            log("ao vivo: o último trecho não foi lido em 3 s (%s) — vai do arquivo final" % os.path.basename(self.pasta))
 
     def _arq(self, base, ext, n):
         """o arquivo do pedaço n: o 1º tem o nome de sempre (fala.wav, tela.mp4); os outros, fala_p02.wav, tela_p02.mp4…"""
@@ -673,6 +754,7 @@ class GravacaoPC:
         self._montar_fala(p["n"])
         log("pausou %s (pedaço %d, %.1f s)" % (os.path.basename(self.pasta), p["n"], p["dur"]))
         self.meta["pedacos"] = self.pedacos; self._salvar_meta()
+        self._ao_vivo_avisar()                  # 20/11 noite: o pedaço fechou — o ao vivo termina ele durante a pausa
         return True
 
     def continuar(self):
@@ -687,6 +769,7 @@ class GravacaoPC:
             self._abrir_pedaco(n, agora)
             self._evento({"tipo": "continua", "pedaco": n}, agora)
         log("continuou %s (pedaço %d)" % (os.path.basename(self.pasta), n))
+        self._ao_vivo_avisar()
         return True
 
     def alternar_pedaco(self, n):
@@ -696,6 +779,7 @@ class GravacaoPC:
                 if p["n"] == n and p["dur"] is not None:
                     p["apagado"] = not p["apagado"]
                     self._evento({"tipo": "pedaco_apagado" if p["apagado"] else "pedaco_voltou", "pedaco": n, "marca": True})
+                    self._ao_vivo_avisar()      # 20/11 noite: apagado sai do dossiê; voltou, as falas dele voltam
                     return True
         return False
 
@@ -839,12 +923,14 @@ class GravacaoPC:
             self.concluida.set()
 
     def _concluir(self, cancelar=False):
+        self._concluiu_epoch = time.time()
         self.parar_ev.set()
         with self.p_trava:
             procs, self.procs = self.procs, []
             if not self.pausado:
                 p = self.pedacos[-1]; p["dur"] = round(time.time() - p["epoch"], 2)
         self._fechar(procs)
+        self._ao_vivo_fim(cancelar or all(p["apagado"] for p in self.pedacos))    # 20/11 noite: antes de mexer nos arquivos dos pedaços
         self._montar_fala(self.pedacos[-1]["n"])
         try:
             with self.ev_trava:
@@ -1078,6 +1164,28 @@ class OlhoPremiere(GravacaoPC):
         threading.Thread(target=self._area, daemon=True).start()
         threading.Thread(target=self._capturas, daemon=True).start()
         self._salvar_meta()
+        self._ao_vivo_ligar(premiere=pasta_premiere)     # 20/11 noite: a voz é a do painel (parteNN.wav); o processo lê o sessao.json dele
+
+    def ao_vivo_cancelar(self):
+        """o cancelar pelo atalho: para o processo ao vivo ANTES de o painel mover a pasta (arquivo aberto trava a mudança no Windows)"""
+        pr = self.ao_vivo
+        if pr is not None and pr.poll() is None:
+            try:
+                pr.kill(); pr.wait(3)
+            except Exception:
+                pass
+
+    @staticmethod
+    def ao_vivo_apagar(pasta_final):
+        """depois do cancelar: o dossiê (o _ao_vivo e o LEITURA parcial do _olho) sai de onde a pasta foi parar"""
+        if not pasta_final:
+            return
+        o = os.path.join(pasta_final, "_olho")
+        shutil.rmtree(os.path.join(o, "_ao_vivo"), ignore_errors=True)
+        try:
+            os.remove(os.path.join(o, "LEITURA.md"))
+        except OSError:
+            pass
 
     def sincronizar(self, t_gravacao, gravando):
         """o vigia chama a cada ~0,5 s com o t_gravacao do painel: o relógio do olho anda junto (parado na pausa)"""
@@ -2196,7 +2304,12 @@ class Kakashi:
             uf, self.ult_fora = self.ult_fora, None
             if cancelar:
                 self._nao_perguntar(*(uf[1:] if uf else ()))
-                http("http://127.0.0.1:7815/cancelar", {})
+                o = getattr(self, "olho_prem", None)     # getattr: quem monta o Kakashi sem o __init__ (o teste da troca) não quebra
+                if o is not None:                    # 20/11 noite: o ao vivo para antes (a pasta vai ser movida) e o dossiê some depois
+                    o.ao_vivo_cancelar()
+                r = http("http://127.0.0.1:7815/cancelar", {}) or {}
+                if o is not None:
+                    OlhoPremiere.ao_vivo_apagar(r.get("pasta") or o.pasta_premiere)
                 if self.troca_pc is not None:        # começou como PC e trocou: as duas partes são uma correção só
                     threading.Thread(target=self._descartar_parte_pc, args=(self.troca_pc,), daemon=True).start()
             else:
@@ -3370,8 +3483,34 @@ def gravacoes(n=12):
     return out[:n]
 
 
+def ao_vivo_largar(pasta):
+    """20/11 noite: descartar = o dossiê some (o _ao_vivo e o LEITURA.md que o ao vivo escreveu) e o processo ao vivo daquela pasta para
+    ANTES de a pasta ser movida (arquivo aberto trava a mudança no Windows). A gravação em si fica, como sempre."""
+    for p in (pasta, os.path.join(pasta, "_olho")):
+        d = os.path.join(p, "_ao_vivo")
+        if not os.path.isdir(d):
+            continue
+        try:
+            e = json.load(open(os.path.join(d, "estado.json"), encoding="utf-8"))
+            pid = int(e.get("pid") or 0)
+            if pid and pid != os.getpid() and time.time() - float(e.get("batida") or 0) < 20 and not MAC:
+                h = kernel32.OpenProcess(0x0001, False, pid)          # PROCESS_TERMINATE
+                if h:
+                    kernel32.TerminateProcess(h, 1); kernel32.CloseHandle(h); time.sleep(0.3)
+        except (OSError, ValueError, TypeError):
+            pass
+        shutil.rmtree(d, ignore_errors=True)
+        lt = os.path.join(p, "LEITURA.md")
+        try:
+            if os.path.isfile(lt) and "DOSSIÊ" in open(lt, encoding="utf-8", errors="replace").read(800):
+                os.remove(lt)
+        except OSError:
+            pass
+
+
 def descartar(g):
     """vai pra <origem>/_descartadas (nunca apaga) e marca descartada no sessao.json"""
+    ao_vivo_largar(g["pasta"])
     arq = os.path.join(g["pasta"], "sessao.json")
     try:
         m = json.load(open(arq, encoding="utf-8"))

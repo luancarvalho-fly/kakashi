@@ -3,7 +3,8 @@
 
   python resumo_pc.py [pasta | ultima] [--quadros] [--sem-refs]
 
-Por trecho de 15 s: fala (o TANDERA: Whisper large-v3-turbo no processador, sem placa; 01/11) + janela da frente + link aberto no Chrome (endereço exato,
+Por trecho de 15 s: fala (20/11 noite: a transcrita DURANTE a gravação, _ao_vivo\\fala.json; sem ela, o TANDERA: Whisper
+large-v3-turbo na placa pelo porteiro; era no processador até 20/11) + janela da frente + link aberto no Chrome (endereço exato,
 do histórico) + elemento debaixo do mouse (UI Automation, na pausa e no clique) + card do AppPessoal + o que ele copiou + o print NATIVO
 do "aqui / isso / esse / ó / olha" (marcado pelo tempo da fala). No fim: pré-triagem (pedidos, bugs, ideias) e SUGESTÕES de
 fechamento das perguntas abertas do quiz (fala literal; quem fecha é o Claude, depois de conferir).
@@ -59,8 +60,9 @@ def sem_acento(s):
 
 
 # ------------------------------------------------------------------ fala
-# 01/11/2026 (Tandera único): a fala vem do TANDERA (a peça «fala»: Whisper large-v3-turbo, só os trechos com som, filtro de laço), no PROCESSADOR
-# (a placa fica pro Premiere). O whisper-server 8178 fica de reserva se o Tandera falhar OU voltar vazio com som. A transcrição guardada vale só se foi
+# 01/11/2026 (Tandera único): a fala vem do TANDERA (a peça «fala»: Whisper large-v3-turbo, só os trechos com som, filtro de laço). 20/11 noite:
+# NA PLACA pelo motor quente/porteiro (era no processador: 27 min gravados = ~11 min só transcrevendo); e quando a gravação teve o AO VIVO,
+# nem transcreve: lê o _ao_vivo\fala.json (fala_ao_vivo). O whisper-server 8178 fica de reserva se o Tandera falhar OU voltar vazio com som. A transcrição guardada vale só se foi
 # feita com a versão atual da peça (a lei dele: reaproveitar = só o que já foi feito com o mais novo).
 # pacote da Fly (02/11): o motor da transcrição sai do config.json → "transcricao": "ardi" (padrão: quem transcreve é o Claude, pela ARDI,
 # e grava com o importar_transcricao.py) | "tandera" (a peça «fala» do Tandera no processador; "local" = o nome antigo, vale o mesmo) |
@@ -162,6 +164,19 @@ def transcrever_8178(wav, dur):
     return segs
 
 
+def fala_ao_vivo(pasta):
+    """20/11 noite: a fala transcrita DURANTE a gravação (modo_resumo.py --ao-vivo → _ao_vivo\\fala.json): vale se cobre a gravação
+    inteira e é do fala.wav de agora (mesmo tamanho e hora). → [(ini, fim, txt)] no relógio do fala.wav, ou None (= transcreve aqui)"""
+    wav = os.path.join(pasta, "fala.wav")
+    try:
+        c = json.load(open(os.path.join(pasta, "_ao_vivo", "fala.json"), encoding="utf-8"))
+        if c.get("completa") and c.get("marca") == [os.path.getsize(wav), int(os.path.getmtime(wav))]:
+            return [(float(a), float(b), tx) for a, b, tx in c["segmentos"]]
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return None
+
+
 def fala_da_sessao(pasta, desloc):
     """[(inicio, fim, texto)] no relógio da sessão. Cache em fala_transcricao.json (refaz se o fala.wav mudou)."""
     wav = os.path.join(pasta, "fala.wav")
@@ -169,6 +184,9 @@ def fala_da_sessao(pasta, desloc):
         return []
     cache = os.path.join(pasta, "fala_transcricao.json")
     marca = [os.path.getsize(wav), int(os.path.getmtime(wav))]
+    viva = fala_ao_vivo(pasta)          # 20/11 noite: já transcrita durante a gravação = não transcreve de novo
+    if viva is not None:
+        return [(a + desloc, b + desloc, tx, False) for a, b, tx in viva]
     try:
         quem = quem_transcreve()
     except Exception:
@@ -249,6 +267,8 @@ def rastro_app_pessoal(ini_epoch, fim_epoch, meta=None):
 
 def pendencias_abertas():
     """só PERGUNTAS abertas do quiz (tarefa aberta não se 'responde' falando; e muitas nasceram da própria correção)"""
+    if _PARCIAL[0]:                     # 20/11 noite: o LEITURA parcial (gravando) não pergunta nada
+        return None
     try:
         return [i for i in json.load(urllib.request.urlopen(PENDENCIAS, timeout=5)).get("itens", [])
                 if i.get("estado") == "aberta" and i.get("tipo") != "tarefa"]
@@ -406,6 +426,15 @@ def linha_evento(x, uia_por_clique):
     return None
 
 
+def _quadro_um(args):
+    ts, video, saida = args
+    if os.path.isfile(saida):           # 20/11 noite: o dossiê é reescrito quando chegam os links — o quadro do mesmo segundo já está lá
+        return
+    subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(ts), "-i", video, "-frames:v", "1",
+                    "-vf", "scale='min(1920,iw)':-2",       # a tela do painel do Premiere é 4K: quadro em 1920 igual ao do PC
+                    saida], check=False, creationflags=0x08000000 if sys.platform == "win32" else 0)
+
+
 def main():
     a = [x for x in sys.argv[1:] if not x.startswith("--")]
     if not a or a[0] == "ultima":
@@ -415,6 +444,17 @@ def main():
         pasta = ps[-1]
     else:
         pasta = a[0]
+    print(gerar(pasta, com_quadros="--quadros" in sys.argv, sem_refs="--sem-refs" in sys.argv))
+
+
+_PARCIAL = [False]
+
+
+def gerar(pasta, com_quadros=False, sem_refs=False, parcial=False, fala_viva=None, apagados=()):
+    """o LEITURA.md da sessão (o DOSSIÊ). 20/11 noite: o modo_resumo.py --ao-vivo chama isto DURANTE a gravação (parcial=True: a fala
+    até agora em fala_viva, sem histórico do Chrome, sem quadros, sem o quiz — barato) e no fim (completo, com a fala ao vivo já no
+    _ao_vivo\\fala.json). Pela linha de comando (o /kakashi) é o mesmo de sempre."""
+    _PARCIAL[0] = bool(parcial)
     meta = json.load(open(os.path.join(pasta, "sessao.json"), encoding="utf-8"))
     ini = meta.get("inicio_epoch") or 0
     dur = meta.get("duracao_s") or 0
@@ -432,20 +472,26 @@ def main():
             evs.append(json.loads(l))
         except ValueError:
             quebradas += 1
-    if quebradas:
+    if quebradas and sys.stderr is not None:
         print("aviso: %d linha(s) quebrada(s) no eventos.jsonl (queda de energia?) foram puladas" % quebradas, file=sys.stderr)
-    if not any(e.get("tipo") == "app_pessoal" for e in evs):
+    if apagados:                        # parcial (gravando): o que caiu num pedaço apagado já sai (no fim o Kakashi tira de vez)
+        evs = [e for e in evs if e.get("pedaco") not in apagados]
+    if not parcial and not any(e.get("tipo") == "app_pessoal" for e in evs):
         evs += rastro_app_pessoal(ini, olho.fim_da_sessao(meta), meta)
     evs.sort(key=lambda e: e.get("t", 0))
     # links do Chrome
     try:
         links = json.load(open(os.path.join(pasta, "links.json"), encoding="utf-8"))["links"]
     except (OSError, ValueError, KeyError):
-        try:
-            links = olho.links_da_sessao(pasta, meta, baixar="--sem-refs" not in sys.argv)
-        except Exception as e:
-            links = []; print("links do Chrome: %s" % e)
-    fala = fala_da_sessao(pasta, desloc_fala)
+        if parcial:                     # gravando: o histórico ainda não fechou — os links entram no fim
+            links = []
+        else:
+            try:
+                links = olho.links_da_sessao(pasta, meta, baixar=not sem_refs)
+            except Exception as e:
+                links = []; print("links do Chrome: %s" % e)
+    fala = [(a, b, tx, False) for a, b, tx in fala_viva] if fala_viva is not None else fala_da_sessao(pasta, desloc_fala)
+    viva = fala_viva is not None or fala_ao_vivo(pasta) is not None
     if rep:     # 02/11 (ele: "não é pra você pegar coisa anterior ou coisa depois"): o replay de sessão antiga fica de fora da leitura
         fala = [x for x in fala if x[0] >= rep]
         evs = [x for x in evs if x.get("t", 0) >= rep]
@@ -469,15 +515,14 @@ def main():
                 pegos.append(c)
         quadros += [int(c[0]) for c in pegos]
     quadros = sorted(set(quadros))
-    if "--quadros" in sys.argv and os.path.isfile(os.path.join(pasta, "tela.mp4")):
+    if com_quadros and os.path.isfile(os.path.join(pasta, "tela.mp4")):
         os.makedirs(os.path.join(pasta, "_quadros"), exist_ok=True)
-        for tt in quadros[:60]:
-            ts = tt - desloc_tela
-            if ts < 0:
-                continue
-            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", str(ts), "-i", os.path.join(pasta, "tela.mp4"), "-frames:v", "1",
-                            "-vf", "scale='min(1920,iw)':-2",       # a tela do painel do Premiere é 4K: quadro em 1920 igual ao do PC
-                            os.path.join(pasta, "_quadros", "%02d%02d.jpg" % (tt // 60, tt % 60))], check=False)
+        # 20/11 noite: 4 ffmpeg de cada vez (era um por um: 60 quadros de uma gravação longa levavam ~15 s no fim)
+        from concurrent.futures import ThreadPoolExecutor
+        pedidos = [(tt - desloc_tela, os.path.join(pasta, "tela.mp4"), os.path.join(pasta, "_quadros", "%02d%02d.jpg" % (tt // 60, tt % 60)))
+                   for tt in quadros[:60] if tt - desloc_tela >= 0]
+        with ThreadPoolExecutor(4) as ex:
+            list(ex.map(_quadro_um, pedidos))
 
     j0 = meta.get("janela_inicial") or {}
     n_cop = sum(1 for e in evs if e.get("tipo") == "copiou")
@@ -549,7 +594,7 @@ def main():
                 linhas.append("- %s → sem print nativo perto; %s" % (
                     ", ".join("«%s» %s" % (x[1], mmss(x[0])) for x in sem),
                     ("quadros do vídeo (1920): " + ", ".join("_quadros\\%02d%02d.jpg" % (q // 60, q % 60) for q in qs))
-                    if "--quadros" in sys.argv else "rodar com --quadros pro quadro do vídeo"))
+                    if com_quadros else "rodar com --quadros pro quadro do vídeo"))
             linhas.append("")
         t += TRECHO
 
@@ -570,8 +615,22 @@ def main():
         if not sug:
             linhas.append("- (nenhuma fala bateu com as %d perguntas abertas)" % len(abertas))
     linhas.append("")
-    open(os.path.join(pasta, "LEITURA.md"), "w", encoding="utf-8").write("\n".join(linhas))
-    print(os.path.join(pasta, "LEITURA.md"))
+    if parcial:                         # gravando: o quiz entra só no completo (não pergunta nada a ninguém a cada trecho)
+        linhas = linhas[:next((i for i, l in enumerate(linhas) if l.startswith("## Respostas → perguntas abertas")), len(linhas))]
+    # 20/11 noite: o DOSSIÊ — diz no topo se é o parcial (gravando) ou o completo feito com a fala de durante a gravação
+    if parcial:
+        linhas.insert(1, "**⏺ DOSSIÊ PARCIAL — GRAVANDO (fala até %s).** O LEITURA completo sai sozinho uns segundos depois do concluir; "
+                         "se este aviso ainda estiver aqui com a gravação concluída, rodar `resumo_pc.py <pasta> --quadros`." %
+                      mmss(max([x[1] for x in fala] or [0])))
+    elif viva:
+        linhas.insert(1, "**DOSSIÊ PRONTO (ao vivo):** a fala foi transcrita DURANTE a gravação (trechos de 30–40 s cortados no silêncio, "
+                         "pelo motor quente do Tandera na placa) e este LEITURA saiu sozinho no concluir. Faltou algo = abrir o bruto "
+                         "(fala.wav, tela.mp4) daquele minuto.")
+    destino = os.path.join(pasta, "LEITURA.md")
+    with open(destino + ".tmp", "w", encoding="utf-8") as f:       # inteiro ou nada: quem lê no meio nunca pega meio arquivo
+        f.write("\n".join(linhas))
+    os.replace(destino + ".tmp", destino)
+    return destino
 
 
 if __name__ == "__main__":

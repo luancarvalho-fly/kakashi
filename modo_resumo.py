@@ -103,10 +103,14 @@ def como_transcrever(resumo_pc):
 
 
 def fala_rapida(p, desloc, resumo_pc):
-    """a fala pelo Whisper do ditado, com as regras do Tandera; cache em fala_resumo.json (refaz se o fala.wav mudou)"""
+    """a fala pelo Whisper do ditado, com as regras do Tandera; cache em fala_resumo.json (refaz se o fala.wav mudou).
+    20/11 noite: a fala transcrita DURANTE a gravação (_ao_vivo\\fala.json, ver AoVivo) vem primeiro — aí não transcreve nada."""
     wav = os.path.join(p, "fala.wav")
     if not os.path.isfile(wav):
         return []
+    viva = getattr(resumo_pc, "fala_ao_vivo", lambda _p: None)(p)
+    if viva is not None:
+        return [(a + desloc, b + desloc, tx, False) for a, b, tx in viva]
     cache = os.path.join(p, "fala_resumo.json")
     marca = [os.path.getsize(wav), int(os.path.getmtime(wav))]
     try:
@@ -116,7 +120,9 @@ def fala_rapida(p, desloc, resumo_pc):
         segs = c["segmentos"]
     except (OSError, ValueError, KeyError):
         tandera = _tandera(resumo_pc)
-        r = tandera.transcrever(wav, idioma="pt", rapido=True, dispositivo="cpu")   # 8178 caiu no meio = o Whisper do Tandera NO PROCESSADOR
+        # 8178 caiu no meio = o Whisper do Tandera NA PLACA (20/11 noite; era «cpu» — a lei dele de 20/11: «é pra rodar tudo na placa de
+        # video... tem que funcionar mesmo eu usando o Premiere»; quem divide a placa com o Premiere é o porteiro do Tandera)
+        r = tandera.transcrever(wav, idioma="pt", rapido=True, dispositivo="cuda")
         inventadas = getattr(resumo_pc, "INVENTADAS", r"$^")
         segs = [[s["ini"], s["fim"], s["txt"]] for s in r["segmentos"] if not re.fullmatch(inventadas, s["txt"].strip())]
         json.dump({"marca": marca, "via": r.get("via") or "?", "segmentos": segs}, open(cache, "w", encoding="utf-8"),
@@ -126,7 +132,7 @@ def fala_rapida(p, desloc, resumo_pc):
 
 def log(msg):
     try:
-        with open(os.path.join(AQUI, "kakashi.log"), "a", encoding="utf-8") as f:
+        with open(os.environ.get("KAKASHI_LOG") or os.path.join(AQUI, "kakashi.log"), "a", encoding="utf-8") as f:   # 20/11: o teste aponta outro
             f.write(datetime.datetime.now().strftime("%d/%m %H:%M:%S") + " resumo: " + msg + "\n")
     except OSError:
         pass
@@ -530,6 +536,7 @@ def resumo_de(p):
     desloc = rep if (rep and "fala" not in juntos) else 0
     t0 = time.time()
     aviso = ""
+    espera_viva(p)          # 20/11 noite: o AO VIVO fechando o último trecho → espera ele (segundos) em vez de transcrever tudo de novo
     via, porque = como_transcrever(resumo_pc)
     a, b = TAXA[via]
     andamento(etapa="transcrevendo", via=via, ini_fala=t0, previsto_fala_s=round(a * float(meta.get("duracao_s") or 0) + b, 1))
@@ -545,6 +552,8 @@ def resumo_de(p):
         if fala is None:
             fala = resumo_pc.fala_da_sessao(p, desloc)
             via = "processador"
+        if getattr(resumo_pc, "fala_ao_vivo", lambda _p: None)(p) is not None:
+            via, porque = "ao vivo (transcrita durante a gravação)", ""
         log("fala de %s transcrita em %.1f s pelo %s%s (%d trechos)" % (os.path.basename(p), time.time() - t0, via,
                                                                     (" — " + porque) if porque and via != "ditado" else "", len(fala)))
     except (Exception, SystemExit) as e:
@@ -732,9 +741,642 @@ def montar(pastas):
     return destino, texto
 
 
+# =====================================================================================================================================
+# AO VIVO (20/11/2026 ~21h) — a fala transcrita DURANTE a gravação. Pedido dele (20/11 ~20h20): «seria perfeito se a análise do Kakashi
+# já ficava pronta no final da gravação, tá ligado? Enquanto tá gravando, já tá recolhendo, fazendo as paradas, tá ligado? Que é o tempo
+# que você perde pra poder ficar analisando tudo» · e antes: «como você consegue otimizar isso de forma que você não fique burro e o
+# resultado não seja condenado?». Só o RECOLHER sai da frente: a leitura (LEITURA.md, PROMPT.md, sabotador, Opus) não muda nem encolhe.
+#
+#   pythonw modo_resumo.py --ao-vivo <pasta da sessão> [--premiere <pasta da sessão do painel>] [--pai <pid do Kakashi>]
+#
+# O Kakashi liga UM destes por gravação (GravacaoPC; no Premiere o OlhoPremiere, com a pasta do painel). A cada ~30–40 s de voz,
+# cortado no ponto mais quieto (nunca no meio da palavra), o trecho vai pro motor quente do Tandera (7797) com via «quente»: o Whisper
+# que já estiver na placa — o do ditado (8178) ou o do Tandera, que o porteiro divide com o Premiere (um motor só). Motor quente fora
+# do ar = o Tandera rapido=True (8178 com as regras do Tandera; sem o 8178, o Whisper do Tandera NA PLACA). Cada trecho fica em
+# _ao_vivo\trechos.json com o pedaço da gravação e o segundo DENTRO do arquivo; o LEITURA.md vai sendo escrito (PARCIAL) a cada trecho.
+# No fim falta só o último trecho: o relógio final é aplicado (pausas, pedaços apagados, atraso do microfone), o que ficou sem trecho é
+# transcrito do arquivo final, e saem _ao_vivo\fala.json (a fala inteira no relógio do fala.wav) e o LEITURA.md COMPLETO = o DOSSIÊ,
+# que o RESUMO, o /kakashi rápido e o profundo leem. Pedaço apagado sai; pausa não grava, então não transcreve; cancelar apaga o
+# dossiê (o Kakashi para este processo e apaga _ao_vivo antes de mover a pasta); trazer de volta um pedaço devolve as falas dele.
+# Sem motor quente, sem 8178 e sem placa (ex.: o Mac do time), ou qualquer erro: não sai fala.json e tudo segue o caminho de antes.
+AO_VIVO = "_ao_vivo"
+TRECHO_MIN_S, TRECHO_MAX_S = 30.0, 40.0    # cada trecho: 30–40 s, cortado no ponto mais quieto desse intervalo
+JANELA_SIL_S = 0.3                          # o «silêncio» procurado: a janela de 0,3 s com menos energia (a pausa entre frases)
+LACUNA_MIN_S = 1.0                          # pedaço do relógio final sem trecho (≥ 1 s) = transcreve do arquivo final no fim
+PARCIAL_CADA_S = 15.0                       # o LEITURA.md parcial é reescrito no máximo a cada 15 s (e só com trecho novo)
+ESPERA_FINAL_S = 240                        # o Kakashi/painel juntando os pedaços: espera o relógio final até 4 min
+ESPERA_LINKS_FIM_S = 30                     # depois do dossiê: espera o histórico do Chrome (links.json) pra reescrever com os links
+# o pedido ao motor quente: «placa» = o Whisper do PRÓPRIO Tandera (o mesmo da transcrição de antes) na placa pelo porteiro; sem vaga, o
+# do ditado (8178). Medido 20/11 na gravação de 1:36 (prova_5): Tandera 163 de 164 palavras iguais à transcrição inteira de antes
+# (99,4%) e as 7 falas do PROMPT; o do ditado direto, 155 de 164 (94,5%), e «Cadê?» virou «A ver.» — por isso o do Tandera vem primeiro.
+VIA_AO_VIVO = os.environ.get("KAKASHI_AO_VIVO_VIA") or "placa"
+
+
+def _json_atomico(caminho, obj):
+    tmp = caminho + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=0)
+    os.replace(tmp, caminho)
+
+
+def _ler_json(caminho, padrao=None):
+    try:
+        return json.load(open(caminho, encoding="utf-8"))
+    except (OSError, ValueError):
+        return padrao
+
+
+def espera_viva(p, limite=90):
+    """a gravação teve o AO VIVO (_ao_vivo\\estado.json): espera ele escrever o _ao_vivo\\fala.json (segundos) em vez de transcrever
+    tudo de novo. Sem ao vivo, falhou, cancelou ou parou de bater = volta na hora (e o caminho de antes transcreve)."""
+    t0 = time.time()
+    while time.time() - t0 < limite:
+        e = _ler_json(os.path.join(p, AO_VIVO, "estado.json"))
+        if not e:
+            return False
+        if os.path.isfile(os.path.join(p, AO_VIVO, "fala.json")):
+            return True
+        if e.get("estado") in ("falhou", "cancelado", "sem kakashi", "abandonado") or time.time() - float(e.get("batida") or 0) > 15:
+            return False
+        time.sleep(0.2)
+    return False
+
+
+def _processo_vivo(pid):
+    """o Kakashi (o pai) ainda está aberto? (Windows: OpenProcess + GetExitCodeProcess; fora do Windows: os.kill 0)"""
+    if not pid:
+        return True
+    if sys.platform != "win32":
+        try:
+            os.kill(int(pid), 0); return True
+        except OSError:
+            return False
+    import ctypes
+    k = ctypes.windll.kernel32
+    h = k.OpenProcess(0x1000, False, int(pid))         # PROCESS_QUERY_LIMITED_INFORMATION
+    if not h:
+        return False
+    try:
+        cod = ctypes.c_ulong()
+        return bool(k.GetExitCodeProcess(h, ctypes.byref(cod))) and cod.value == 259     # STILL_ACTIVE
+    finally:
+        k.CloseHandle(h)
+
+
+def _wav_info(arq):
+    """(início dos dados, taxa, canais, largura, quadros escritos ATÉ AGORA) — o wav pode estar crescendo (cabeçalho sem tamanho)"""
+    try:
+        with open(arq, "rb") as f:
+            cab = f.read(4096)
+        tam = os.path.getsize(arq)
+    except OSError:
+        return None
+    i = cab.find(b"fmt ")
+    j = cab.find(b"data", i + 8) if i >= 0 else -1
+    if i < 0 or j < 0:
+        return None
+    can = int.from_bytes(cab[i + 10:i + 12], "little") or 1
+    taxa = int.from_bytes(cab[i + 12:i + 16], "little") or 48000
+    larg = (int.from_bytes(cab[i + 22:i + 24], "little") // 8) or 2
+    ini = j + 8
+    return ini, taxa, can, larg, max(0, (tam - ini) // (can * larg))
+
+
+def _ler_pcm(arq, info, de_s, ate_s):
+    ini, taxa, can, larg, n = info
+    q0, q1 = max(0, int(round(de_s * taxa))), min(n, int(round(ate_s * taxa)))
+    if q1 <= q0:
+        return b""
+    with open(arq, "rb") as f:
+        f.seek(ini + q0 * can * larg)
+        return f.read((q1 - q0) * can * larg)
+
+
+def _energias(pcm, info, passo_s=0.05):
+    """energia (RMS de 16 bits) a cada 50 ms, do 1º canal — sem numpy (o Python do Kakashi não tem)"""
+    import array
+    _ini, taxa, can, larg, _n = info
+    if larg != 2:
+        return []
+    a = array.array("h")
+    a.frombytes(pcm[: len(pcm) // 2 * 2])
+    if sys.byteorder != "little":
+        a.byteswap()
+    passo = max(1, int(taxa * passo_s)) * can
+    out = []
+    for k in range(0, len(a) - passo + 1, passo):
+        b = a[k:k + passo:can * 4]             # 1 amostra em 4 do 1º canal: sobra precisão pra achar a pausa
+        out.append((sum(x * x for x in b) / max(1, len(b))) ** 0.5)
+    return out
+
+
+def _corte_no_silencio(arq, info, de_s, ate_s):
+    """o segundo (no arquivo) do meio da janela de 0,3 s mais quieta entre de_s e ate_s (empate = a mais tarde: trecho maior)"""
+    en = _energias(_ler_pcm(arq, info, de_s, ate_s), info)
+    k = max(1, int(round(JANELA_SIL_S / 0.05)))
+    if len(en) < k:
+        return ate_s
+    soma = sum(en[:k]); melhor, onde = soma, 0
+    for i in range(1, len(en) - k + 1):
+        soma += en[i + k - 1] - en[i - 1]
+        if soma <= melhor:
+            melhor, onde = soma, i
+    return de_s + (onde + k / 2.0) * 0.05
+
+
+def _wav_temp(pcm, info, nome):
+    """o trecho num wav de verdade (fechado, com tamanho) na pasta temporária — nunca na pasta da sessão (o cancelar move ela)"""
+    import tempfile, wave
+    _ini, taxa, can, larg, _n = info
+    arq = os.path.join(tempfile.gettempdir(), "kakashi_aovivo_%d_%s.wav" % (os.getpid(), nome))
+    with wave.open(arq, "wb") as w:
+        w.setnchannels(can); w.setsampwidth(larg); w.setframerate(taxa); w.writeframes(pcm)
+    return arq
+
+
+def _transcrever_arquivo(arq, resumo_pc):
+    """→ (segmentos [[ini, fim, txt]] no relógio do arquivo, «via»). O motor quente do Tandera (7797) com via «quente» (o Whisper que já
+    está na placa: o do ditado 8178 ou o do Tandera pelo porteiro); fora do ar = o Tandera rapido=True NA PLACA (e liga o motor quente
+    pro próximo trecho). As regras do Tandera (só os trechos com som, laço, frase inventada) valem nos dois."""
+    tandera = _tandera(resumo_pc)
+    from tandera import residente
+    r = None
+    if residente.usar():
+        try:
+            r = residente.pedir("/transcrever", {"audio": os.path.abspath(arq), "idioma": "pt", "via": VIA_AO_VIVO}, timeout=900)["r"]
+            via = r.get("como") or "motor quente"
+        except residente.Caiu:
+            r = None
+    else:
+        residente.ligar()
+    if r is None:
+        r = tandera.transcrever(arq, idioma="pt", rapido=True, dispositivo="cuda")
+        via = "Tandera rápido (%s)" % (r.get("via") or "?")
+    inventadas = getattr(resumo_pc, "INVENTADAS", r"$^")
+    segs = [[round(float(s["ini"]), 2), round(float(s["fim"]), 2), s["txt"].strip()] for s in r.get("segmentos") or []
+            if (s.get("txt") or "").strip() and not re.fullmatch(inventadas, s["txt"].strip())]
+    return segs, via
+
+
+class AoVivo:
+    """o processo que recolhe a fala enquanto ele grava (ver o bloco acima)"""
+
+    def __init__(self, pasta, premiere=None, pai=None):
+        import resumo_pc
+        self.rp = resumo_pc
+        self.pasta = os.path.abspath(pasta)
+        self.prem = os.path.abspath(premiere) if premiere else None
+        self.pai = pai
+        self.nome = os.path.basename(os.path.dirname(self.pasta) if self.prem else self.pasta)
+        self.dir = os.path.join(self.pasta, AO_VIVO)
+        os.makedirs(self.dir, exist_ok=True)
+        d = _ler_json(os.path.join(self.dir, "trechos.json"), {}) or {}
+        self.trechos = d.get("trechos") or []          # retoma o que já tinha (o Kakashi reabriu no meio da gravação)
+        self.falhas = d.get("falhas") or []
+        self.feito = {}
+        for t in self.trechos:
+            self.feito[t["chave"]] = max(self.feito.get(t["chave"], 0.0), t["fim"])
+        self.tam = {}                                  # chave → (tamanho, quando mudou): arquivo fechado só vale parado há 1 s
+        self.t_parcial = 0.0
+        self.novos_desde_parcial = 0
+        self.inicio = time.time()
+
+    # ---- estado (o RESUMO e o Kakashi leem) ----
+    def batida(self, estado, **extra):
+        try:
+            _json_atomico(os.path.join(self.dir, "estado.json"), dict({"estado": estado, "batida": round(time.time(), 2), "pid": os.getpid(),
+                                                                         "trechos": len(self.trechos), "falhas": len(self.falhas)}, **extra))
+        except OSError:
+            pass
+
+    def outro_rodando(self):
+        e = _ler_json(os.path.join(self.dir, "estado.json"), {}) or {}
+        return (e.get("pid") not in (None, os.getpid()) and e.get("estado") in ("gravando", "finalizando")
+                and time.time() - float(e.get("batida") or 0) < 5 and _processo_vivo(e.get("pid")))
+
+    def salvar(self):
+        _json_atomico(os.path.join(self.dir, "trechos.json"), {"fonte": "premiere" if self.prem else "pc", "trechos": self.trechos,
+                                                               "falhas": self.falhas})
+
+    # ---- de onde vem a voz ----
+    def sinal(self):
+        """PC: o que o Kakashi conta em _ao_vivo\\pedacos.json (pedaços, pausa, fim, cancelar)"""
+        return _ler_json(os.path.join(self.dir, "pedacos.json"), {}) or {}
+
+    def meta_painel(self):
+        return _ler_json(os.path.join(self.prem, "sessao.json"), {}) or {} if self.prem else {}
+
+    def fontes(self):
+        """[(n, arquivo, fechado, apagado)] — PC: o arquivo da voz de cada pedaço; Premiere: as parteNN.wav do painel"""
+        out = []
+        if self.prem:
+            for p in self.meta_painel().get("partes") or []:
+                arq = os.path.join(self.prem, p.get("audio") or "parte%02d.wav" % p["n"])
+                if not os.path.isfile(arq):            # pedaço apagado: o painel move os arquivos dele na hora
+                    alt = os.path.join(self.prem, "_pedacos_apagados", os.path.basename(arq))
+                    arq = alt if os.path.isfile(alt) else arq
+                out.append((p["n"], arq, p.get("fim") is not None, bool(p.get("apagada"))))
+            return out
+        for p in self.sinal().get("pedacos") or [{"n": 1, "dur": None, "apagado": False}]:
+            n = p["n"]
+            out.append((n, os.path.join(self.pasta, "fala.wav" if n == 1 else "fala_p%02d.wav" % n), p.get("dur") is not None, bool(p.get("apagado"))))
+        return out
+
+    def terminou(self):
+        """None (gravando) · "fim" · "cancelado" """
+        if self.prem:
+            if not os.path.isdir(self.prem):
+                return "cancelado"
+            m = self.meta_painel()
+            if m.get("descartada") or m.get("estado") == "descartada":
+                return "cancelado"
+            if m.get("estado") in ("finalizando", "concluida"):
+                return "fim"
+            mo = _ler_json(os.path.join(self.pasta, "sessao.json"), {}) or {}
+            return "fim" if mo.get("duracao_s") is not None else None
+        if not os.path.isdir(self.pasta):
+            return "cancelado"
+        s = self.sinal()
+        if s.get("cancelar"):
+            return "cancelado"
+        return "fim" if s.get("fim") else None
+
+    # ---- transcrever ----
+    def _estavel(self, k, arq):
+        try:
+            tam = os.path.getsize(arq)
+        except OSError:
+            return False
+        v = self.tam.get(k)
+        if v is None or v[0] != tam:
+            self.tam[k] = (tam, time.time()); return False
+        return time.time() - v[1] >= 1.0
+
+    def _trecho(self, k, n, arq, info, de, ate, rotulo=None):
+        t0 = time.time()
+        tmp = None
+        try:
+            tmp = _wav_temp(_ler_pcm(arq, info, de, ate), info, k)
+            segs, via = _transcrever_arquivo(tmp, self.rp)
+            self.trechos.append({"chave": k, "n": n, "arq": rotulo or os.path.basename(arq), "ini": round(de, 3), "fim": round(ate, 3),
+                                 "segs": [[round(de + a, 2), round(de + b, 2), tx] for a, b, tx in segs], "via": via,
+                                 "levou_s": round(time.time() - t0, 2), "em": round(time.time(), 2)})
+            self.novos_desde_parcial += 1
+        except Exception as e:                      # o buraco é coberto no fim, pelo arquivo final
+            self.falhas.append({"chave": k, "ini": round(de, 3), "fim": round(ate, 3), "erro": repr(e)[:300], "em": round(time.time(), 2)})
+            log("ao vivo %s: trecho %s %s–%s falhou: %r" % (self.nome, k, mmss(de), mmss(ate), e))
+        finally:
+            if tmp:
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+        self.feito[k] = ate
+        self.salvar()
+
+    def _cortar_e_transcrever(self, k, n, arq, info, de, ate, ate_o_fim, rotulo=None):
+        """de → ate em trechos de 30–40 s cortados no silêncio; ate_o_fim=False deixa o que ainda não deu 40 s pra depois"""
+        while not self.parar():
+            falta = ate - de
+            if ate_o_fim:
+                if falta < 0.3:
+                    break
+                corte = ate if falta <= TRECHO_MAX_S else _corte_no_silencio(arq, info, de + TRECHO_MIN_S, de + TRECHO_MAX_S)
+            else:
+                if falta < TRECHO_MAX_S + 0.5:      # meio segundo de folga: o ffmpeg pode estar no meio de um pacote
+                    break
+                corte = _corte_no_silencio(arq, info, de + TRECHO_MIN_S, de + TRECHO_MAX_S)
+            self._trecho(k, n, arq, info, de, corte, rotulo)
+            de = corte
+
+    def passo(self, ate_o_fim=False):
+        """transcreve o que já dá em cada arquivo (fechado e parado há 1 s = até o fim)"""
+        antes = len(self.trechos) + len(self.falhas)
+        for n, arq, fechado, apagado in self.fontes():
+            if ate_o_fim and apagado:               # no fim, pedaço apagado não volta mais: não precisa transcrever o resto dele
+                continue
+            info = _wav_info(arq)
+            if not info:
+                continue
+            k = "p%02d" % n
+            fim_arq = info[4] / float(info[1])
+            fechou = ate_o_fim or (fechado and self._estavel(k, arq))
+            self._cortar_e_transcrever(k, n, arq, info, self.feito.get(k, 0.0), fim_arq, fechou)
+            if self.parar():
+                break
+        return len(self.trechos) + len(self.falhas) - antes
+
+    _parar = False
+
+    def parar(self):
+        if not self._parar and self.terminou() == "cancelado":
+            self._parar = True
+        return self._parar
+
+    def ler_rabos(self):
+        """PC, no concluir: o que falta de cada pedaço vai pra um wav temporário AGORA — o Kakashi espera o «rabo.ok» (até 3 s) antes de
+        renomear/juntar os pedaços. Devolve [(k, n, arquivo temporário, info, de, nome)]"""
+        out = []
+        if self.sinal().get("rabo_tarde"):          # o Kakashi não esperou mais (3 s): os arquivos já podem ter sido renomeados/juntados
+            log("ao vivo %s: o último trecho chegou tarde — sai do arquivo final (lacuna)" % self.nome)
+            return out
+        for n, arq, _f, apagado in self.fontes():
+            info = _wav_info(arq) if not apagado else None
+            if not info:
+                continue
+            k = "p%02d" % n
+            de, fim_arq = self.feito.get(k, 0.0), info[4] / float(info[1])
+            if fim_arq - de < 0.3:
+                continue
+            tmp = _wav_temp(_ler_pcm(arq, info, de, fim_arq), info, "rabo_" + k)
+            out.append((k, n, tmp, _wav_info(tmp), de, os.path.basename(arq)))
+        try:
+            open(os.path.join(self.dir, "rabo.ok"), "w").write("%.2f" % time.time())
+        except OSError:
+            pass
+        return out
+
+    # ---- o relógio final ----
+    def mapa_final(self):
+        """{n: (começo do pedaço no fala.wav final, atraso do microfone no começo, duração do pedaço)} + a duração final + o wav final.
+        PC: o sessao.json do Kakashi depois de juntar; Premiere: o sessao.json do painel (as partes que ficaram, na ordem) e o fala.wav
+        do _olho (= o audio.wav do painel)."""
+        meta = _ler_json(os.path.join(self.pasta, "sessao.json"), {}) or {}
+        base = {}
+        if self.prem:
+            mp = self.meta_painel()
+            t = 0.0
+            for p in sorted(mp.get("partes") or [], key=lambda x: x["n"]):
+                if p.get("apagada") or p.get("fim") is None or p["fim"] <= p["inicio"]:
+                    continue
+                dw = p["fim"] - p["inicio"]
+                atraso = p.get("atraso_audio")
+                if atraso is None:                  # a mesma conta do painel (_alinhar_e_juntar): o que falta no arquivo vai pro começo
+                    arq = os.path.join(self.prem, p.get("audio") or "parte%02d.wav" % p["n"])
+                    info = _wav_info(arq)
+                    da = info[4] / float(info[1]) if info else dw
+                    caiu = p.get("mic_caiu_em")
+                    vivo = dw if caiu is None else min(dw, max(0.0, caiu - p["inicio"]))
+                    atraso = max(0.0, vivo - da)
+                base[p["n"]] = (t, float(atraso), dw)
+                t += dw
+            return base, meta, os.path.join(self.pasta, "fala.wav"), 0.0
+        rep = meta.get("replay_s") or 0
+        off = rep if (rep and "fala" in (meta.get("replay_juntado") or [])) else 0.0
+        peds = meta.get("pedacos")
+        if not peds:                                # um pedaço só: o fala.wav É o arquivo gravado (sem cortar nem juntar)
+            base[1] = (0.0, 0.0, 1e12)
+        else:
+            atraso = {x.get("pedaco"): float(x.get("s") or 0) for x in meta.get("mic_atraso") or [] if x.get("onde") == "comeco"}
+            t = 0.0
+            for p in peds:
+                if p.get("apagado") or (p.get("dur") or 0) <= 0.2:
+                    continue
+                base[p["n"]] = (t, atraso.get(p["n"], 0.0), float(p["dur"]))
+                t += float(p["dur"])
+        return base, meta, os.path.join(self.pasta, "fala.wav"), off
+
+    def mapear(self, base, off):
+        """os trechos no relógio do fala.wav final → (segmentos, intervalos cobertos)"""
+        segs, cob = [], []
+        for n, (b0, pad, dur) in base.items():
+            if pad > 0:
+                cob.append((off + b0, off + b0 + pad))
+            lim = dur - pad                         # o arquivo mais comprido que o pedaço foi cortado no fim
+            for tr in self.trechos:
+                if tr["n"] != n:
+                    continue
+                if tr["ini"] < lim:
+                    cob.append((off + b0 + pad + tr["ini"], off + b0 + pad + min(tr["fim"], lim)))
+                for a, b, tx in tr["segs"]:
+                    if a < lim - 0.05:
+                        segs.append([round(off + b0 + pad + a, 2), round(off + b0 + pad + min(b, lim), 2), tx])
+        return segs, cob
+
+    @staticmethod
+    def lacunas(cob, dur):
+        out, t = [], 0.0
+        for a, b in sorted(cob):
+            if a - t >= LACUNA_MIN_S:
+                out.append((t, a))
+            t = max(t, b)
+        if dur - t >= LACUNA_MIN_S:
+            out.append((t, dur))
+        return out
+
+    def esperar_final(self):
+        """o relógio final pronto: PC = sessao.json com duracao_s (o Kakashi juntou os pedaços); Premiere = o _olho concluído (o painel
+        juntou o audio.wav e o fala.wav do _olho está ligado). None = cancelado/descartado ou não ficou pronto a tempo"""
+        t0 = time.time()
+        while time.time() - t0 < ESPERA_FINAL_S:
+            if self.terminou() == "cancelado":
+                return None
+            m = _ler_json(os.path.join(self.pasta, "sessao.json"), {}) or {}
+            if m.get("descartada"):
+                return None
+            if m.get("duracao_s") is not None and os.path.isfile(os.path.join(self.pasta, "fala.wav")):
+                if not self.prem or self.meta_painel().get("estado") == "concluida":
+                    return m
+            self.batida("finalizando")
+            time.sleep(0.2)
+        return None
+
+    def fim_da_gravacao(self):
+        """o instante do concluir (pra medir «dossiê pronto em X s»): PC = o que o Kakashi escreveu no sinal; Premiere = o fim da última parte"""
+        if self.prem:
+            fins = [p.get("fim") for p in self.meta_painel().get("partes") or [] if p.get("fim")]
+            return max(fins) if fins else None
+        return self.sinal().get("concluiu_epoch")
+
+    # ---- o dossiê ----
+    def parcial(self, forcar=False):
+        """o LEITURA.md PARCIAL (gravando): a fala até agora no relógio ao vivo + o que o olho já registrou"""
+        if not self.novos_desde_parcial or (not forcar and time.time() - self.t_parcial < PARCIAL_CADA_S):
+            return
+        segs, apagados = [], set()
+        if self.prem:
+            partes = {p["n"]: p for p in self.meta_painel().get("partes") or []}
+            for tr in self.trechos:
+                p = partes.get(tr["n"])
+                if p is None or p.get("apagada"):
+                    continue
+                segs += [[float(p.get("t0") or 0) + a, float(p.get("t0") or 0) + b, tx] for a, b, tx in tr["segs"]]
+        else:
+            peds = {p["n"]: p for p in self.sinal().get("pedacos") or []}
+            apagados = {n for n, p in peds.items() if p.get("apagado")}
+            for tr in self.trechos:
+                p = peds.get(tr["n"]) or {"ini": 0.0}
+                if tr["n"] in apagados:
+                    continue
+                segs += [[float(p.get("ini") or 0) + a, float(p.get("ini") or 0) + b, tx] for a, b, tx in tr["segs"]]
+        try:
+            self.rp.gerar(self.pasta, parcial=True, fala_viva=sorted(segs), apagados=apagados)
+            self.t_parcial, self.novos_desde_parcial = time.time(), 0
+        except Exception as e:
+            log("ao vivo %s: LEITURA parcial: %r" % (self.nome, e))
+
+    def limpar(self):
+        """cancelado: o dossiê some (a gravação em si fica como o cancelar já deixa: _descartadas, nada apagado)"""
+        import shutil
+        for p in self._pastas_possiveis():
+            try:
+                shutil.rmtree(os.path.join(p, AO_VIVO), ignore_errors=True)
+                lt = os.path.join(p, "LEITURA.md")
+                if os.path.isfile(lt) and "DOSSIÊ PARCIAL" in open(lt, encoding="utf-8", errors="replace").read(600):
+                    os.remove(lt)
+            except OSError:
+                pass
+        log("ao vivo %s: cancelado — dossiê apagado" % self.nome)
+
+    def _pastas_possiveis(self):
+        """onde a pasta pode estar depois do cancelar: no lugar ou em _descartadas (PC: a sessão; Premiere: o _olho da sessão do painel)"""
+        if self.prem:
+            raiz, nome = os.path.dirname(self.prem), os.path.basename(self.prem)
+            cands = [self.prem] + [os.path.join(raiz, "_descartadas", n) for n in (os.listdir(os.path.join(raiz, "_descartadas"))
+                                   if os.path.isdir(os.path.join(raiz, "_descartadas")) else []) if n == nome or n.startswith(nome + "_")]
+            return [os.path.join(c, "_olho") for c in cands if os.path.isdir(os.path.join(c, "_olho"))]
+        raiz, nome = os.path.dirname(self.pasta), os.path.basename(self.pasta)
+        return [c for c in (self.pasta, os.path.join(raiz, "_descartadas", nome)) if os.path.isdir(c)]
+
+    def finalizar(self):
+        t_viu = time.time()
+        self.batida("finalizando")
+        rabos = self.ler_rabos() if not self.prem else []
+        if self.prem:
+            self.passo(ate_o_fim=True)
+        for k, n, tmp, info, de, nome in rabos:     # PC: o último trecho de cada pedaço (do wav temporário, no relógio do arquivo)
+            self._cortar_e_transcrever_desloc(k, n, tmp, info, de, nome)
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+        if self.parar():
+            self.limpar(); return 0
+        meta = self.esperar_final()
+        if meta is None:
+            if self.terminou() == "cancelado" or (_ler_json(os.path.join(self.pasta, "sessao.json"), {}) or {}).get("descartada"):
+                self.limpar(); self.batida("cancelado"); return 0
+            self.batida("falhou", erro="o relógio final não ficou pronto em %d s" % ESPERA_FINAL_S); return 1
+        base, meta, wav, off = self.mapa_final()
+        segs, cob = self.mapear(base, off)
+        info = _wav_info(wav)
+        dur_wav = info[4] / float(info[1]) if info else float(meta.get("duracao_s") or 0)
+        lac = self.lacunas(cob, dur_wav)
+        for a, b in lac:                              # o que ficou sem trecho (microfone reaberto, trecho que falhou): do arquivo final
+            antes = len(self.trechos)
+            self._cortar_e_transcrever_final(wav, _wav_info(wav), a, b)
+            for tr in self.trechos[antes:]:
+                segs += [list(s) for s in tr["segs"]]
+        segs.sort(key=lambda s: (s[0], s[1]))
+        try:
+            marca = [os.path.getsize(wav), int(os.path.getmtime(wav))]
+        except OSError:
+            self.batida("falhou", erro="sem fala.wav no fim"); return 1
+        concluiu = self.fim_da_gravacao()
+        vias = sorted({t.get("via", "?").split(" · ")[0] for t in self.trechos})
+        _json_atomico(os.path.join(self.dir, "fala.json"), {
+            "marca": marca, "completa": True, "segmentos": segs, "via": vias, "trechos": len(self.trechos), "falhas": len(self.falhas),
+            "lacunas": [[round(a, 2), round(b, 2)] for a, b in lac], "fonte": "premiere" if self.prem else "pc",
+            "concluiu_epoch": concluiu, "fala_pronta_epoch": round(time.time(), 2), "dur_s": round(dur_wav, 2)})
+        t_fala = time.time()
+        self.batida("fala pronta")
+        if self.prem:
+            self._fala_md(segs)
+        try:
+            self.rp.gerar(self.pasta, com_quadros=True)
+        except Exception as e:
+            log("ao vivo %s: o dossiê (LEITURA.md) falhou: %r" % (self.nome, e))
+            self.batida("falhou", erro="LEITURA: %r" % e); return 1
+        t_dossie = time.time()
+        ref = concluiu or t_viu
+        log("ao vivo %s: DOSSIÊ PRONTO %.1f s depois do concluir (fala %.1f s; %d trechos ao vivo, %d lacunas, %d falhas; %s)" % (
+            self.nome, t_dossie - ref, t_fala - ref, len(self.trechos), len(lac), len(self.falhas), ", ".join(vias)))
+        self.batida("pronto", dossie_s=round(t_dossie - ref, 2), fala_s=round(t_fala - ref, 2), leitura=os.path.join(self.pasta, "LEITURA.md"))
+        # o histórico do Chrome só vai pro disco ~12 s depois: quando o links.json sair, o dossiê é reescrito com os links (sem transcrever)
+        t0 = time.time()
+        while time.time() - t0 < ESPERA_LINKS_FIM_S:
+            m = _ler_json(os.path.join(self.pasta, "sessao.json"), {}) or {}
+            if "links" in m or m.get("descartada"):
+                break
+            time.sleep(0.5)
+        if os.path.isfile(os.path.join(self.pasta, "links.json")) and os.path.isdir(self.pasta):
+            try:
+                self.rp.gerar(self.pasta, com_quadros=True)
+                log("ao vivo %s: dossiê reescrito com os links do histórico do Chrome (%.1f s depois do concluir)" % (self.nome, time.time() - ref))
+                self.batida("pronto", dossie_s=round(t_dossie - ref, 2), fala_s=round(t_fala - ref, 2), links_s=round(time.time() - ref, 2),
+                            leitura=os.path.join(self.pasta, "LEITURA.md"))
+            except Exception as e:
+                log("ao vivo %s: reescrever com os links: %r" % (self.nome, e))
+        return 0
+
+    def _cortar_e_transcrever_desloc(self, k, n, tmp, info, de, nome):
+        """o rabo (wav temporário que começa em «de» no arquivo do pedaço): trechos de 30–40 s, guardados no relógio do arquivo do pedaço"""
+        antes, antes_f = len(self.trechos), len(self.falhas)
+        fim = info[4] / float(info[1]) if info else 0.0
+        self._cortar_e_transcrever(k, n, tmp, info, 0.0, fim, True, rotulo=nome)
+        for tr in self.trechos[antes:]:
+            tr["ini"] = round(tr["ini"] + de, 3); tr["fim"] = round(tr["fim"] + de, 3)
+            tr["segs"] = [[round(a + de, 2), round(b + de, 2), tx] for a, b, tx in tr["segs"]]
+        for f in self.falhas[antes_f:]:
+            f["ini"] = round(f["ini"] + de, 3); f["fim"] = round(f["fim"] + de, 3)
+        self.feito[k] = de + fim
+        self.salvar()
+
+    def _cortar_e_transcrever_final(self, wav, info, a, b):
+        """lacuna do relógio final: do fala.wav final, já no relógio dele (n = 0: não pertence a pedaço nenhum)"""
+        if info:
+            self._cortar_e_transcrever("final", 0, wav, info, a, min(b, info[4] / float(info[1])), True, rotulo="fala.wav (final)")
+
+    def _fala_md(self, segs):
+        """Premiere: o _transcricao\\FALA.md da sessão do painel (o passo 2 da skill) já sai pronto, do dossiê"""
+        try:
+            d = os.path.join(self.prem, "_transcricao"); os.makedirs(d, exist_ok=True)
+            with open(os.path.join(d, "FALA.md"), "w", encoding="utf-8") as f:
+                f.write("# FALA (dossiê ao vivo: transcrita durante a gravação, trechos de 30–40 s cortados no silêncio)\n\n")
+                f.writelines("[%s] %s\n" % (mmss(a), tx) for a, _b, tx in segs)
+        except OSError as e:
+            log("ao vivo %s: FALA.md: %r" % (self.nome, e))
+
+    def rodar(self):
+        if self.outro_rodando():
+            log("ao vivo %s: já tem outro processo ao vivo nessa pasta — saindo" % self.nome); return 0
+        self.batida("gravando")
+        log("ao vivo %s: começou (%s)" % (self.nome, "Premiere" if self.prem else "PC"))
+        ocioso = time.time()
+        while True:
+            est = self.terminou()
+            if est == "cancelado":
+                self.limpar(); return 0
+            if est == "fim":
+                break
+            if not _processo_vivo(self.pai):
+                self.batida("sem kakashi"); log("ao vivo %s: o Kakashi fechou no meio da gravação — parei (o caminho de antes cobre)" % self.nome)
+                return 1
+            try:
+                if self.passo():
+                    ocioso = time.time()
+                self.parcial()
+            except Exception as e:
+                log("ao vivo %s: %r" % (self.nome, e))
+            if time.time() - ocioso > 6 * 3600:
+                self.batida("abandonado"); return 1
+            self.batida("gravando")
+            time.sleep(0.25)
+        try:
+            return self.finalizar()
+        except Exception as e:
+            log("ao vivo %s: finalizar: %r" % (self.nome, e))
+            self.batida("falhou", erro=repr(e)[:300]); return 1
+
+
 def main():
     global ANDAMENTO
     args = sys.argv[1:]
+    if "--ao-vivo" in args:                     # 20/11 noite: o processo que recolhe a fala DURANTE a gravação
+        def opt(nome):
+            return args[args.index(nome) + 1] if nome in args and args.index(nome) + 1 < len(args) else None
+        pai = opt("--pai")
+        sys.exit(AoVivo(opt("--ao-vivo"), opt("--premiere"), int(pai) if pai else None).rodar())
     if "--andamento" in args:
         i = args.index("--andamento")
         ANDAMENTO = args[i + 1] if i + 1 < len(args) else None

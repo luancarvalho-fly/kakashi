@@ -23,8 +23,8 @@ Pasta do Kakashi: `%LOCALAPPDATA%\Programs\Kakashi-Fly\` (abaixo, "a pasta"). Py
 ## MODO RESUMO (15/11) — o 3º modo: chega colado, sem /kakashi
 O Luan (15/11): «quando termina, já cola tudo pro Claude... print com links com a minha transcrição... de uma maneira inteligente...
 e rápida... mais rápido que uma leitura do Kakashi rápido».
-- Marcado RESUMO (na barra gravando, na escolha ou na janelinha), o PRÓPRIO Kakashi roda `modo_resumo.py` (a fala pelo Whisper do ditado
-  na porta 8178 se estiver no ar — segundos; senão pelo motor do `config.json`; a barra mostra «COMPILANDO 60% · PRONTO EM X») e cola no chat uma mensagem que começa com **«KAKASHI · RESUMO»**: a fala por minuto + no minuto o
+- Marcado RESUMO (na barra gravando, na escolha ou na janelinha), o PRÓPRIO Kakashi roda `modo_resumo.py` (a fala do dossiê ao vivo,
+  se ligado; senão pelo Whisper na porta 8178 se estiver no ar — segundos; senão pelo motor do `config.json`; a barra mostra «COMPILANDO 60% · PRONTO EM X») e cola no chat uma mensagem que começa com **«KAKASHI · RESUMO»**: a fala por minuto + no minuto o
   print copiado, o desenho na tela, link/texto/arquivo copiado, o que baixou, as páginas abertas e **📸 prints automáticos** do lugar que a pessoa apontou («aqui/isso/ó», recorte de perto com o
   mouse no círculo vermelho; onde ela mesma copiou print ou desenhou, não entra automático). Ditado (OpenWhispr) fica de fora.
 - Recebeu isso no chat = **é o pedido da pessoa: não roda esta skill nem LEITURA/PROMPT/sabotador**. Abrir as imagens pelos caminhos
@@ -110,6 +110,10 @@ Traço desfeito ainda aparece no vídeo/print: ignorar. Passo pra reproduzir nun
 - `"8178"`: um whisper-server que já esteja no ar nessa porta (o do Luan é o do ditado dele; no pacote é só opção).
 
 ## 3. Ler
+- **Dossiê pronto (20/11):** com `"ao_vivo": true` no `config.json` (precisa do Tandera com placa; no pacote vem desligado) o Kakashi
+  transcreve a voz DURANTE a gravação, em trechos de 30–40 s cortados no silêncio, e o `LEITURA.md` já sai pronto segundos depois do
+  concluir. Se o topo do `LEITURA.md` disser **«DOSSIÊ PRONTO (ao vivo)»**, ler direto, sem rodar o `resumo_pc.py` nem transcrever;
+  «DOSSIÊ PARCIAL», ou sem `LEITURA.md`, é o caminho abaixo. Só o recolher muda: a leitura, o PROMPT, o conferidor e o sabotador não.
 - PC: `python resumo_pc.py "<pasta da sessão>" --quadros` → ler o `LEITURA.md` INTEIRO.
 - Premiere: `python resumo_pc.py "<sessão>\_olho" --quadros` → ler o `_olho\LEITURA.md` INTEIRO junto com o `resumo.md` da sessão,
   pelo minuto (o print nativo do "aqui" vence o quadro do `tela.mp4`).
